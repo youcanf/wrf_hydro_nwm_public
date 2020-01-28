@@ -10,6 +10,8 @@
 module module_NWM_io
 
 use module_version, only: get_code_version, get_nwm_version
+use orchestrator_base
+use module_hydro_stop, only: HYDRO_stop
 
 implicit none
 
@@ -65,7 +67,7 @@ end function GetModelConfigType
 
 subroutine output_chrt_NWM(domainId)
    use module_rt_data, only: rt_domain
-   use module_namelist, only: nlst_rt
+   use config_base, only: nlst
    use Module_Date_utilities_rt, only: geth_newdate, geth_idts
    use module_NWM_io_dict
    use netcdf
@@ -161,7 +163,7 @@ subroutine output_chrt_NWM(domainId)
    diagFlag = 0
 #endif
 
-   if(nlst_rt(domainId)%CHRTOUT_DOMAIN .eq. 0) then
+   if(nlst(domainId)%CHRTOUT_DOMAIN .eq. 0) then
       ! No output requested here, return to parent calling program/subroutine.
       return
    endif
@@ -184,25 +186,25 @@ subroutine output_chrt_NWM(domainId)
    ! Depending on the NWM forecast config, we will be outputting different
    ! varibles. DO NOT MODIFY THESE ARRAYS WITHOUT CONSULTING NCAR OR
    ! OWP!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!
-   if (nlst_rt(1)%io_config_outputs .eq. 0) then
+   if (nlst(1)%io_config_outputs .eq. 0) then
       ! All
       fileMeta%outFlag(:) = [1,1,1,1,1,0,0,0,0,0]
-   else if (nlst_rt(1)%io_config_outputs .eq. 1) then
+   else if (nlst(1)%io_config_outputs .eq. 1) then
       ! Analysis and Assimilation
       fileMeta%outFlag(:) = [1,0,0,1,0,0,0,0,0,0]
-   else if (nlst_rt(1)%io_config_outputs .eq. 2) then
+   else if (nlst(1)%io_config_outputs .eq. 2) then
       ! Short Range
       fileMeta%outFlag(:) = [1,0,0,1,0,0,0,0,0,0]
-   else if (nlst_rt(1)%io_config_outputs .eq. 3) then
+   else if (nlst(1)%io_config_outputs .eq. 3) then
       ! Medium Range
       fileMeta%outFlag(:) = [1,0,0,1,0,0,0,0,0,0]
-   else if (nlst_rt(1)%io_config_outputs .eq. 4) then
+   else if (nlst(1)%io_config_outputs .eq. 4) then
       ! Long Range
       fileMeta%outFlag(:) = [1,0,0,1,0,0,0,0,0,0]
-   else if (nlst_rt(1)%io_config_outputs .eq. 5) then
+   else if (nlst(1)%io_config_outputs .eq. 5) then
       ! Retrospective
       fileMeta%outFlag(:) = [1,0,1,1,0,0,0,0,0,0]
-   else if (nlst_rt(1)%io_config_outputs .eq. 6) then
+   else if (nlst(1)%io_config_outputs .eq. 6) then
       ! Diagnostics
       fileMeta%outFlag(:) = [1,0,1,1,0,0,0,0,0,0]
    else
@@ -210,13 +212,13 @@ subroutine output_chrt_NWM(domainId)
    endif
 
    ! call the GetModelConfigType function
-   modelConfigType = GetModelConfigType(nlst_rt(1)%io_config_outputs)
+   modelConfigType = GetModelConfigType(nlst(1)%io_config_outputs)
 
    ! First step is to collect and assemble all data that will be written to the
    ! NetCDF file. If we are not using MPI, we bypass the collection step through
    ! MPI.
    if(mppFlag .eq. 1) then
-      if(nlst_rt(domainId)%channel_option .ne. 3) then
+      if(nlst(domainId)%channel_option .ne. 3) then
          gsize = rt_domain(domainId)%gnlinksl
       else
          gsize = rt_domain(domainId)%gnlinks
@@ -327,7 +329,7 @@ subroutine output_chrt_NWM(domainId)
 
       ! Collect arrays from various processors through MPI, and
       ! assemble into global arrays previously allocated.
-      if(nlst_rt(domainId)%channel_option .ne. 3) then
+      if(nlst(domainId)%channel_option .ne. 3) then
          ! Reach-based routing collection
 #ifdef MPP_LAND
          call ReachLS_write_io(strFlowLocal,g_qlink(:,1))
@@ -349,22 +351,22 @@ subroutine output_chrt_NWM(domainId)
          else
             fileMeta%outFlag(2) = 0 ! Set output flag to off.
          endif
-         if(nlst_rt(domainId)%UDMP_OPT .eq. 1) then
+         if(nlst(domainId)%UDMP_OPT .eq. 1) then
             ! Currently, we only allow channel-only outputs to be produced for
             ! NWM configurations.
-            if(nlst_rt(domainId)%output_channelBucket_influx .eq. 1 .or. &
-               nlst_rt(domainId)%output_channelBucket_influx .eq. 2) then
+            if(nlst(domainId)%output_channelBucket_influx .eq. 1 .or. &
+               nlst(domainId)%output_channelBucket_influx .eq. 2) then
                fileMeta%outFlag(6) = 1
                fileMeta%outFlag(7) = 1
                call ReachLS_write_io(RT_DOMAIN(domainId)%qSfcLatRunoff,g_qSfcLatRunoff)
                call ReachLS_write_io(RT_DOMAIN(domainId)%qBucket,g_qBucket)
             endif
-            if(nlst_rt(domainId)%output_channelBucket_influx .eq. 2 .and. &
-               nlst_rt(domainId)%channel_only                .eq. 0         ) then
+            if(nlst(domainId)%output_channelBucket_influx .eq. 2 .and. &
+               nlst(domainId)%channel_only                .eq. 0         ) then
                fileMeta%outFlag(8) = 1
                call ReachLS_write_io(RT_DOMAIN(domainId)%qin_gwsubbas,g_qBtmVertRunoff)
             endif
-            if(nlst_rt(domainId)%output_channelBucket_influx .eq. 3) then
+            if(nlst(domainId)%output_channelBucket_influx .eq. 3) then
                !! JLM: unsure the following will work... but this is caveated in namelist.
                fileMeta%outFlag(9) = 1
                fileMeta%outFlag(10) = 1
@@ -372,7 +374,7 @@ subroutine output_chrt_NWM(domainId)
                call ReachLS_write_io(RT_DOMAIN(domainId)%qBucket,g_accBucket)
             endif
          else
-            if(nlst_rt(domainId)%output_channelBucket_influx .ne. 0) then
+            if(nlst(domainId)%output_channelBucket_influx .ne. 0) then
                ! For reach-based routing (non-NWM), we currently do not support
                ! these outputs. Politely alert the user.....
                call postDiagMsg(diagFlag,'WARNING: Channel-only outputs not available for UDMPT = 0 on reach-based routing.')
@@ -391,7 +393,7 @@ subroutine output_chrt_NWM(domainId)
          call write_chanel_real(RT_DOMAIN(domainId)%ZELEV,rt_domain(domainId)%map_l2g,gSize,rt_domain(domainId)%nlinks,g_zelev)
          call write_chanel_real(RT_DOMAIN(domainId)%QLateral,rt_domain(domainId)%map_l2g,gSize,rt_domain(domainId)%nlinks,g_QLateral)
          call write_chanel_real(velocityLocal,rt_domain(domainId)%map_l2g,gSize,rt_domain(domainId)%nlinks,g_velocity)
-         if(nlst_rt(domainId)%output_channelBucket_influx .ne. 0) then
+         if(nlst(domainId)%output_channelBucket_influx .ne. 0) then
             call postDiagMsg(diagFlag,'WARNING: This channelBucket_influx only available for reach-based routing.')
          endif
          if(nudgeFlag .eq. 1)then
@@ -455,28 +457,28 @@ subroutine output_chrt_NWM(domainId)
          g_nudge = RT_DOMAIN(domainID)%nudge
 #endif
       endif
-      if(nlst_rt(domainId)%UDMP_OPT .eq. 1) then
+      if(nlst(domainId)%UDMP_OPT .eq. 1) then
          ! Currently, we only allow channel-only outputs to be produced for
          ! NWM configurations.
-         if(nlst_rt(domainId)%output_channelBucket_influx .eq. 1 .or. &
-            nlst_rt(domainId)%output_channelBucket_influx .eq. 2) then
+         if(nlst(domainId)%output_channelBucket_influx .eq. 1 .or. &
+            nlst(domainId)%output_channelBucket_influx .eq. 2) then
             fileMeta%outFlag(6) = 1
             fileMeta%outFlag(7) = 1
             g_qSfcLatRunoff = RT_DOMAIN(domainId)%qSfcLatRunoff
             g_qBucket = RT_DOMAIN(domainId)%qBucket
          endif
-         if(nlst_rt(domainId)%output_channelBucket_influx .eq. 2) then
+         if(nlst(domainId)%output_channelBucket_influx .eq. 2) then
             fileMeta%outFlag(8) = 1
             g_qBtmVertRunoff = RT_DOMAIN(domainId)%qin_gwsubbas
          endif
-         if(nlst_rt(domainId)%output_channelBucket_influx .eq. 3) then
+         if(nlst(domainId)%output_channelBucket_influx .eq. 3) then
             fileMeta%outFlag(9) = 1
             fileMeta%outFlag(10) = 1
             g_accSfcLatRunoff = RT_DOMAIN(domainId)%accSfcLatRunoff
             g_accBucket = RT_DOMAIN(domainId)%qBucket
          endif
       else
-         if(nlst_rt(domainId)%output_channelBucket_influx .ne. 0) then
+         if(nlst(domainId)%output_channelBucket_influx .ne. 0) then
             ! For reach-based routing (non-NWM), we currently do not support
             ! these outputs. Politely alert the user.....
             call postDiagMsg(diagFlag,'WARNING: Channel-only outputs not available for UDMPT = 0 on reach-based routing.')
@@ -487,54 +489,57 @@ subroutine output_chrt_NWM(domainId)
    ! Calculate datetime information.
    ! First compose strings of EPOCH and simulation start date.
    epochDate = trim("1970-01-01 00:00")
-   startDate = trim(nlst_rt(domainId)%startdate(1:4)//"-"//&
-                    nlst_rt(domainId)%startdate(6:7)//&
-                    &"-"//nlst_rt(domainId)%startdate(9:10)//" "//&
-                    nlst_rt(domainId)%startdate(12:13)//":"//&
-                    nlst_rt(domainId)%startdate(15:16))
+   startDate = trim(nlst(domainId)%startdate(1:4)//"-"//&
+                    nlst(domainId)%startdate(6:7)//&
+                    &"-"//nlst(domainId)%startdate(9:10)//" "//&
+                    nlst(domainId)%startdate(12:13)//":"//&
+                    nlst(domainId)%startdate(15:16))
    ! Second, utilize NoahMP date utilities to calculate the number of minutes
    ! from EPOCH to the beginning of the model simulation.
    call geth_idts(startDate,epochDate,minSinceEpoch1)
    ! Third, calculate the number of minutes since the beginning of the
    ! simulation.
-   minSinceSim = int(nlst_rt(1)%out_dt*(rt_domain(1)%out_counts-1))
+   minSinceSim = int(nlst(1)%out_dt*(rt_domain(1)%out_counts-1))
    ! Fourth, calculate the total number of minutes from EPOCH to the current
    ! model time step.
    minSinceEpoch = minSinceEpoch1 + minSinceSim
    ! Fifth, compose global attribute time strings that will be used.
-   validTime = trim(nlst_rt(domainId)%olddate(1:4)//'-'//&
-                    nlst_rt(domainId)%olddate(6:7)//'-'//&
-                    nlst_rt(domainId)%olddate(9:10)//'_'//&
-                    nlst_rt(domainId)%olddate(12:13)//&
-                    &':00:00')
-   initTime = trim(nlst_rt(domainId)%startdate(1:4)//'-'//&
-                  nlst_rt(domainId)%startdate(6:7)//'-'//&
-                  nlst_rt(domainId)%startdate(9:10)//'_'//&
-                  nlst_rt(domainId)%startdate(12:13)//&
-                  &':00:00')
+   validTime = trim(nlst(domainId)%olddate(1:4)//'-'//&
+                    nlst(domainId)%olddate(6:7)//'-'//&
+                    nlst(domainId)%olddate(9:10)//'_'//&
+                    nlst(domainId)%olddate(12:13)//':'//&
+                    nlst(domainId)%olddate(15:16)//&
+                    &':00')
+   initTime = trim(nlst(domainId)%startdate(1:4)//'-'//&
+                  nlst(domainId)%startdate(6:7)//'-'//&
+                  nlst(domainId)%startdate(9:10)//'_'//&
+                  nlst(domainId)%startdate(12:13)//':'//&
+                  nlst(domainId)%startdate(15:16)//&
+                  &':00')
    ! Replace default values in the dictionary.
    fileMeta%initTime = trim(initTime)
    fileMeta%validTime = trim(validTime)
 
    ! calculate the minimum and maximum time
-   fileMeta%timeValidMin = minSinceEpoch1 + nlst_rt(1)%out_dt
-   fileMeta%timeValidMax = minSinceEpoch1 + int(nlst_rt(1)%khour * 60/nlst_rt(1)%out_dt) * nlst_rt(1)%out_dt
+   fileMeta%timeValidMin = minSinceEpoch1 + nlst(1)%out_dt
+   fileMeta%timeValidMax = minSinceEpoch1 + int(nlst(1)%khour * 60/nlst(1)%out_dt) * nlst(1)%out_dt
 
    ! calculate total_valid_time
-   fileMeta%totalValidTime = int(nlst_rt(1)%khour * 60 / nlst_rt(1)%out_dt)  ! # number of valid time (#of output files)
+   fileMeta%totalValidTime = int(nlst(1)%khour * 60 / nlst(1)%out_dt)  ! # number of valid time (#of output files)
 
    ! Compose output file name.
-   write(output_flnm, '(A12,".CHRTOUT_DOMAIN",I1)')nlst_rt(domainId)%olddate(1:4)//&
-         nlst_rt(domainId)%olddate(6:7)//nlst_rt(domainId)%olddate(9:10)//&
-         nlst_rt(domainId)%olddate(12:13)//nlst_rt(domainId)%olddate(15:16), nlst_rt(domainId)%igrid
+   write(output_flnm, '(A12,".CHRTOUT_DOMAIN",I1)')nlst(domainId)%olddate(1:4)//&
+         nlst(domainId)%olddate(6:7)//nlst(domainId)%olddate(9:10)//&
+         nlst(domainId)%olddate(12:13)//nlst(domainId)%olddate(15:16), nlst(domainId)%igrid
 
    ! Only run NetCDF library calls to output data if we are on the master
    ! processor.
    if(myId .eq. 0) then
-      if(nlst_rt(domainId)%channel_option .ne. 3) then
+      if(nlst(domainId)%channel_option .ne. 3) then
          ! Read in index values from Routelink that will be used to sort output
          ! variables by ascending feature_id.
-         iret = nf90_open(trim(nlst_rt(1)%route_link_f),NF90_NOWRITE,ncid=ftnRt)
+         iret = orchestrator%IO_Manager%netcdf_layer%open_file(trim(nlst(1)%route_link_f),NF90_NOWRITE,ncid=ftnRt)
+         !iret = nf90_open(trim(nlst(1)%route_link_f),NF90_NOWRITE,ncid=ftnRt)
          call nwmCheck(diagFlag,iret,'ERROR: Unable to open RouteLink file for index extraction')
          iret = nf90_inq_varid(ftnRt,'ascendingIndex',indVarId)
          if(iret .ne. 0) then
@@ -596,7 +601,7 @@ subroutine output_chrt_NWM(domainId)
       ! Initialize the index array to 0
       g_outInd = 0
 
-      where(g_orderOut .ge. nlst_rt(domainId)%order_to_write) g_outInd = 1
+      where(g_orderOut .ge. nlst(domainId)%order_to_write) g_outInd = 1
       numPtsOut = sum(g_outInd)
 
       if(numPtsOut .eq. 0) then
@@ -609,7 +614,7 @@ subroutine output_chrt_NWM(domainId)
       ! Loop through all channel points if we are running gridded routing.
       ! Assign an arbitrary index value as the linkid field is read in as 0 from
       ! the Fulldom file.
-      if(nlst_rt(domainId)%channel_option .eq. 3) then
+      if(nlst(domainId)%channel_option .eq. 3) then
          do iTmp=1,gSize
             g_linkidOut(iTmp) = iTmp
          end do
@@ -666,7 +671,7 @@ subroutine output_chrt_NWM(domainId)
       call nwmCheck(diagFlag,iret,'ERROR: Unable to create conventions attribute')
       iret = nf90_put_att(ftn,NF90_GLOBAL,"code_version",trim(get_code_version()))
       call nwmCheck(diagFlag,iret,'ERROR: Unable to create code_version attribute')
-#ifdef NCEP_WCOSS
+#ifdef NWM_META
       iret = nf90_put_att(ftn,NF90_GLOBAL,"NWM_version_number",trim(get_nwm_version()))
       call nwmCheck(diagFlag,iret,'ERROR: Unable to create NWM_version_number attribute')
 #endif
@@ -677,13 +682,13 @@ subroutine output_chrt_NWM(domainId)
 
       ! Create global attributes specific to running output through the
       ! channel-only configuration of the model.
-      iret = nf90_put_att(ftn,NF90_GLOBAL,"dev_OVRTSWCRT",nlst_rt(domainId)%OVRTSWCRT)
+      iret = nf90_put_att(ftn,NF90_GLOBAL,"dev_OVRTSWCRT",nlst(domainId)%OVRTSWCRT)
       call nwmCheck(diagFlag,iret,'ERROR: Unable to create dev_OVRTSWCRT attribute')
-      iret = nf90_put_att(ftn,NF90_GLOBAL,"dev_NOAH_TIMESTEP",int(nlst_rt(domainId)%dt))
+      iret = nf90_put_att(ftn,NF90_GLOBAL,"dev_NOAH_TIMESTEP",int(nlst(domainId)%dt))
       call nwmCheck(diagFlag,iret,'ERROR: Unable to create dev_NOAH_TIMESTEP attribute')
-      iret = nf90_put_att(ftn,NF90_GLOBAL,"dev_channel_only",nlst_rt(domainId)%channel_only)
+      iret = nf90_put_att(ftn,NF90_GLOBAL,"dev_channel_only",nlst(domainId)%channel_only)
       call nwmCheck(diagFlag,iret,'ERROR: Unable to create dev_channel_only attribute')
-      iret = nf90_put_att(ftn,NF90_GLOBAL,"dev_channelBucket_only",nlst_rt(domainId)%channelBucket_only)
+      iret = nf90_put_att(ftn,NF90_GLOBAL,"dev_channelBucket_only",nlst(domainId)%channelBucket_only)
       call nwmCheck(diagFlag,iret,'ERROR: Unable to create dev_channelBucket_only attribute')
       iret = nf90_put_att(ftn,NF90_GLOBAL,'dev','dev_ prefix indicates development/internal meta data')
       call nwmCheck(diagFlag,iret,'ERROR: Unable to create dev attribute')
@@ -761,7 +766,7 @@ subroutine output_chrt_NWM(domainId)
       iret = nf90_put_att(ftn,featureVarId,'cf_role',trim(fileMeta%cfRole))
       call nwmCheck(diagFlag,iret,'ERROR: Unable to place cf_role attribute into feature_id variable')
 
-#ifndef NCEP_WCOSS
+#ifndef NWM_META
       ! Create channel lat/lon variables
       ! NOTE: NWM current operations do not permit the output of latitude and longitude for streamflow.
       iret = nf90_def_var(ftn,"latitude",nf90_float,dimId(1),latVarId)
@@ -802,14 +807,14 @@ subroutine output_chrt_NWM(domainId)
 
       ! Define deflation levels for these meta-variables. For now, we are going to
       ! default to a compression level of 2. Only compress if io_form_outputs is set to 1.
-      if((nlst_rt(1)%io_form_outputs .eq. 1) .or. (nlst_rt(1)%io_form_outputs .eq. 3)) then
+      if((nlst(1)%io_form_outputs .eq. 1) .or. (nlst(1)%io_form_outputs .eq. 3)) then
          iret = nf90_def_var_deflate(ftn,timeId,0,1,2)
          call nwmCheck(diagFlag,iret,'ERROR: Unable to define compression level for time.')
          iret = nf90_def_var_deflate(ftn,featureVarId,0,1,2)
          call nwmCheck(diagFlag,iret,'ERROR: Unable to define compression level for feature_id.')
          iret = nf90_def_var_deflate(ftn,refTimeId,0,1,2)
          call nwmCheck(diagFlag,iret,'ERROR: Unable to define compression level for reference_time.')
-#ifndef NCEP_WCOSS
+#ifndef NWM_META
          iret = nf90_def_var_deflate(ftn,latVarId,0,1,2)
          call nwmCheck(diagFlag,iret,'ERROR: Unable to define compression level for latitude.')
          iret = nf90_def_var_deflate(ftn,lonVarId,0,1,2)
@@ -829,7 +834,7 @@ subroutine output_chrt_NWM(domainId)
       do iTmp=1,fileMeta%numVars
          if(fileMeta%outFlag(iTmp) .eq. 1) then
             ! First create variable
-            if((nlst_rt(1)%io_form_outputs .eq. 1) .or. (nlst_rt(1)%io_form_outputs .eq. 2)) then
+            if((nlst(1)%io_form_outputs .eq. 1) .or. (nlst(1)%io_form_outputs .eq. 2)) then
                iret = nf90_def_var(ftn,trim(fileMeta%varNames(iTmp)),nf90_int,dimId(1),varId)
             else
                iret = nf90_def_var(ftn,trim(fileMeta%varNames(iTmp)),nf90_float,dimId(1),varId)
@@ -847,7 +852,7 @@ subroutine output_chrt_NWM(domainId)
             ! filter off for now. Kelley Eicher did some testing with this and
             ! determined that the benefit wasn't worth the extra time spent writing
             ! output. Only compress if io_form_outputs is set to 1.
-            if((nlst_rt(1)%io_form_outputs .eq. 1) .or. (nlst_rt(1)%io_form_outputs .eq. 3)) then
+            if((nlst(1)%io_form_outputs .eq. 1) .or. (nlst(1)%io_form_outputs .eq. 3)) then
                iret = nf90_def_var_deflate(ftn,varId,0,1,2)
                call nwmCheck(diagFlag,iret,'ERROR: Unable to define compression for: '//trim(fileMeta%varNames(iTmp)))
             endif
@@ -861,7 +866,7 @@ subroutine output_chrt_NWM(domainId)
             call nwmCheck(diagFlag,iret,'ERROR: Unable to place coordinates attribute into variable '//trim(fileMeta%varNames(iTmp)))
             iret = nf90_put_att(ftn,varId,'grid_mapping','crs')
             call nwmCheck(diagFlag,iret,'ERROR: Unable to place grid_mapping attribute into variable '//trim(fileMeta%varNames(iTmp)))
-            if((nlst_rt(1)%io_form_outputs .eq. 1) .or. (nlst_rt(1)%io_form_outputs .eq. 2)) then
+            if((nlst(1)%io_form_outputs .eq. 1) .or. (nlst(1)%io_form_outputs .eq. 2)) then
                iret = nf90_put_att(ftn,varId,'_FillValue',fileMeta%fillComp(iTmp))
                call nwmCheck(diagFlag,iret,'ERROR: Unable to place Fill value attribute into variable '//trim(fileMeta%varNames(iTmp)))
                iret = nf90_put_att(ftn,varId,'missing_value',fileMeta%missingComp(iTmp))
@@ -906,7 +911,7 @@ subroutine output_chrt_NWM(domainId)
             call nwmCheck(diagFlag,iret,'ERROR: Unable to find variable ID for var: '//trim(fileMeta%varNames(iTmp)))
 
             ! Put data into NetCDF file
-            if((nlst_rt(1)%io_form_outputs .eq. 1) .or. (nlst_rt(1)%io_form_outputs .eq. 2)) then
+            if((nlst(1)%io_form_outputs .eq. 1) .or. (nlst(1)%io_form_outputs .eq. 2)) then
                iret = nf90_put_var(ftn,varId,varOutInt)
             else
                iret = nf90_put_var(ftn,varId,varOutReal(iTmp,:))
@@ -921,7 +926,7 @@ subroutine output_chrt_NWM(domainId)
       iret = nf90_put_var(ftn,varId,varMetaInt(2,:))
       call nwmCheck(diagFlag,iret,'ERROR: Unable to place data into feature_id output variable.')
 
-#ifndef NCEP_WCOSS
+#ifndef NWM_META
       iret = nf90_inq_varid(ftn,'latitude',varId)
       call nwmCheck(diagFlag,iret,'ERROR: Unable to locate latitude in NetCDF file.')
       iret = nf90_put_var(ftn,varId,varMetaReal(1,:))
@@ -1025,7 +1030,7 @@ end subroutine output_chrt_NWM
 
 subroutine output_NoahMP_NWM(outDir,iGrid,output_timestep,itime,startdate,date,ixPar,jxPar,zNum,varReal,vegTyp,varInd)
    use module_rt_data, only: rt_domain
-   use module_namelist, only: nlst_rt
+   use config_base, only: nlst
    use Module_Date_utilities_rt, only: geth_newdate, geth_idts
    use module_NWM_io_dict
    use netcdf
@@ -1125,31 +1130,33 @@ subroutine output_NoahMP_NWM(outDir,iGrid,output_timestep,itime,startdate,date,i
    ! Calculate necessary datetime information that will go into the output file.
    ! First compose strings of EPOCH and simulation start date.
    epochDate = trim("1970-01-01 00:00")
-   startDateTmp = trim(nlst_rt(1)%startdate(1:4)//"-"//&
-                       nlst_rt(1)%startdate(6:7)//&
-                       &"-"//nlst_rt(1)%startdate(9:10)//" "//&
-                       nlst_rt(1)%startdate(12:13)//":"//&
-                       nlst_rt(1)%startdate(15:16))
+   startDateTmp = trim(nlst(1)%startdate(1:4)//"-"//&
+                       nlst(1)%startdate(6:7)//&
+                       &"-"//nlst(1)%startdate(9:10)//" "//&
+                       nlst(1)%startdate(12:13)//":"//&
+                       nlst(1)%startdate(15:16))
    ! Second, utilize NoahMP date utilities to calculate the number of minutes
    ! from EPOCH to the beginning of the model simulation.
    call geth_idts(startDateTmp,epochDate,minSinceEpoch1)
    ! Third, calculate the number of minutes since the beginning of the
    ! simulation.
-   minSinceSim = int(itime * nlst_rt(1)%dt / 60)
+   minSinceSim = int(itime * nlst(1)%dt / 60)
    ! Fourth, calculate the total number of minutes from EPOCH to the current
    ! model time step.
    minSinceEpoch = minSinceEpoch1 + minSinceSim
    ! Fifth, compose global attribute time strings that will be used.
-   validTime = trim(nlst_rt(1)%olddate(1:4)//'-'//&
-                    nlst_rt(1)%olddate(6:7)//'-'//&
-                    nlst_rt(1)%olddate(9:10)//'_'//&
-                    nlst_rt(1)%olddate(12:13)//&
-                    &':00:00')
-   initTime = trim(nlst_rt(1)%startdate(1:4)//'-'//&
-                  nlst_rt(1)%startdate(6:7)//'-'//&
-                  nlst_rt(1)%startdate(9:10)//'_'//&
-                  nlst_rt(1)%startdate(12:13)//&
-                  &':00:00')
+   validTime = trim(nlst(1)%olddate(1:4)//'-'//&
+                    nlst(1)%olddate(6:7)//'-'//&
+                    nlst(1)%olddate(9:10)//'_'//&
+                    nlst(1)%olddate(12:13)//':'//&
+                    nlst(1)%olddate(15:16)//&
+                    &':00')
+   initTime = trim(nlst(1)%startdate(1:4)//'-'//&
+                  nlst(1)%startdate(6:7)//'-'//&
+                  nlst(1)%startdate(9:10)//'_'//&
+                  nlst(1)%startdate(12:13)//':'//&
+                  nlst(1)%startdate(15:16)//&
+                  &':00')
 
    ! Replace default values in the dictionary.
    fileMeta%initTime = trim(initTime)
@@ -1157,69 +1164,104 @@ subroutine output_NoahMP_NWM(outDir,iGrid,output_timestep,itime,startdate,date,i
 
    ! calculate the minimum and maximum time
    fileMeta%timeValidMin = minSinceEpoch1 + output_timestep / 60  !  output_timestep is in seconds
-   fileMeta%timeValidMax = minSinceEpoch1 + int(nlst_rt(1)%khour * 3600 / output_timestep ) * output_timestep / 60
+   fileMeta%timeValidMax = minSinceEpoch1 + int(nlst(1)%khour * 3600 / output_timestep ) * output_timestep / 60
 
    ! calculate total_valid_time
-   fileMeta%totalValidTime = int(nlst_rt(1)%khour * 3600 / output_timestep )  ! # number of valid time (#of output files)
+   fileMeta%totalValidTime = int(nlst(1)%khour * 3600 / output_timestep )  ! # number of valid time (#of output files)
 
    ! Depending on the NWM forecast config, we will be outputting different
    ! varibles. DO NOT MODIFY THESE ARRAYS WITHOUT CONSULTING NCAR OR
    ! OWP!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!
-   if(nlst_rt(1)%io_config_outputs .eq. 0) then
+   if(nlst(1)%io_config_outputs .eq. 0) then
       ! All
-      fileMeta%outFlag(:) = [1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,&
-                             1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,&
-                             1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,&
-                             1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,&
-                             1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1]
-   else if(nlst_rt(1)%io_config_outputs .eq. 1) then
+      fileMeta%outFlag(:) = [1,1,1,1,1,1,1,1,1,1,& !1-10
+                             1,1,1,1,1,1,1,1,1,1,& !11-20
+                             1,1,1,1,1,1,1,1,1,1,& !21-30
+                             1,1,1,1,1,1,1,1,1,1,& !31-40
+                             1,1,1,1,1,1,1,1,1,1,& !41-50
+                             1,1,1,1,1,1,1,1,1,1,& !51-60
+                             1,1,1,1,1,1,1,1,1,1,& !61-70
+                             1,1,1,1,1,1,1,1,1,1,& !71-80
+                             1,1,1,1,1,1,1,1,1,1,& !81-90
+                             1,1,1,1,1,1,1,1]      !91-98
+   else if(nlst(1)%io_config_outputs .eq. 1) then
       ! Analysis and Assimilation
-      fileMeta%outFlag(:) = [0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,&
-                             0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,&
-                             0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,1,1,&
-                             0,0,1,1,1,0,1,1,0,0,0,0,0,0,0,0,0,0,0,0,&
-                             0,0,0,0,0,0,0,0,0,1,0,1,1,0,1,0,0]
-   else if(nlst_rt(1)%io_config_outputs .eq. 2) then
+      fileMeta%outFlag(:) = [0,0,0,0,0,0,0,0,0,0,& !1-10
+                             0,0,0,0,0,0,1,0,0,0,& !11-20
+                             0,0,0,0,0,0,0,0,0,0,& !21-30
+                             0,0,0,0,0,0,0,0,0,0,& !31-40
+                             0,0,0,0,0,0,0,0,0,0,& !41-50
+                             0,0,0,0,0,0,0,0,1,1,& !51-60
+                             0,0,1,1,1,1,1,1,0,1,& !61-70
+                             0,0,0,0,0,0,0,0,0,0,& !71-80
+                             0,0,0,0,0,0,0,0,0,1,& !81-90
+                             0,1,1,0,1,0,0,1]      !91-98
+   else if(nlst(1)%io_config_outputs .eq. 2) then
       ! Short Range
-      fileMeta%outFlag(:) = [0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,&
-                             0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,&
-                             0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,&
-                             0,0,0,1,1,0,0,1,0,0,0,0,0,0,0,0,0,0,0,0,&
-                             0,0,0,0,0,0,0,0,0,1,0,0,1,0,1,0,0]
-   else if(nlst_rt(1)%io_config_outputs .eq. 3) then
+      fileMeta%outFlag(:) = [0,0,0,0,0,0,0,0,0,0,& !1-10
+                             0,0,0,0,0,0,0,0,0,0,& !11-20
+                             0,0,0,0,0,0,0,0,0,0,& !21-30
+                             0,0,0,0,0,0,0,0,0,0,& !31-40
+                             0,0,0,0,0,0,0,0,0,0,& !41-50
+                             0,0,0,0,0,0,0,0,0,0,& !51-60
+                             0,0,0,1,1,0,0,1,0,0,& !61-70
+                             0,0,0,0,0,0,0,0,0,0,& !71-80
+                             0,0,0,0,0,0,0,0,0,1,& !81-90
+                             0,0,1,0,1,0,0,0]      !91-98
+   else if(nlst(1)%io_config_outputs .eq. 3) then
       ! Medium Range
-      fileMeta%outFlag(:) = [0,0,0,0,0,0,0,0,0,0,1,1,1,1,1,0,0,0,0,1,&
-                             0,0,0,0,0,0,0,1,1,1,0,0,0,0,0,0,0,0,0,0,&
-                             0,0,0,0,1,0,0,0,0,0,0,0,0,0,0,0,0,0,1,1,&
-                             0,0,1,1,1,0,1,1,0,1,0,0,0,0,0,0,0,0,0,0,&
-                             0,0,0,0,0,0,0,0,0,1,1,1,1,0,1,0,0]
-   else if(nlst_rt(1)%io_config_outputs .eq. 4) then
+      fileMeta%outFlag(:) = [0,0,0,0,0,0,0,0,0,0,& !1-10
+                             1,1,1,1,1,0,0,0,0,1,& !11-20
+                             0,0,0,0,0,0,0,1,1,1,& !21-30
+                             0,0,0,0,0,0,0,0,0,0,& !31-40
+                             0,0,0,0,1,0,0,0,0,0,& !41-50
+                             0,0,0,0,0,0,0,0,1,1,& !51-60
+                             0,0,1,1,1,0,1,1,0,1,& !61-70
+                             0,0,0,0,0,0,0,0,0,0,& !71-80
+                             0,0,0,0,0,0,0,0,0,1,& !81-90
+                             1,1,1,0,1,0,0,0]      !91-98
+   else if(nlst(1)%io_config_outputs .eq. 4) then
       ! Long Range
-      fileMeta%outFlag(:) = [0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,1,&
-                             1,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,&
-                             0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,&
-                             0,0,0,0,1,0,0,0,0,1,0,0,0,0,0,0,0,0,0,0,&
-                             0,0,0,0,0,0,0,0,0,1,1,0,1,1,0,0,0]
-   else if(nlst_rt(1)%io_config_outputs .eq. 5) then
+      fileMeta%outFlag(:) = [0,0,0,0,0,0,0,0,0,0,& !1-10
+                             0,0,0,0,0,0,0,0,0,1,& !11-20
+                             1,0,0,0,0,0,0,0,0,0,& !21-30
+                             0,0,0,0,0,0,0,0,0,0,& !31-40
+                             0,0,0,0,0,0,0,0,0,0,& !41-50
+                             0,0,0,0,0,0,0,0,0,0,& !51-60
+                             0,0,0,0,1,0,0,0,0,1,& !61-70
+                             0,0,0,0,0,0,0,0,0,0,& !71-80
+                             0,0,0,0,0,0,0,0,0,1,& !81-90
+                             1,0,1,1,0,0,0,0]      !91-98
+   else if(nlst(1)%io_config_outputs .eq. 5) then
       ! Retrospective
-      fileMeta%outFlag(:) = [0,0,0,0,0,0,1,0,0,0,1,1,0,1,1,0,0,1,0,1,& !1-20
-                             1,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,& !21-40
-                             0,0,0,0,1,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,& !41-60
-                             1,0,1,1,1,0,0,1,0,0,0,0,0,0,0,0,0,0,0,0,& !61-80
-                             0,0,0,0,0,0,0,0,0,1,0,0,0,0,0,1,1]        !81-97
-   else if(nlst_rt(1)%io_config_outputs .eq. 6) then
+      fileMeta%outFlag(:) = [0,0,0,0,0,0,1,0,0,0,& !1-10
+                             1,1,0,1,1,0,0,1,0,1,& !11-20
+                             1,0,0,0,0,0,0,0,0,0,& !21-30
+                             0,0,0,0,0,0,0,0,0,0,& !31-40
+                             0,0,0,0,1,0,0,0,0,0,& !41-50
+                             0,0,0,0,0,0,0,0,0,0,& !51-60
+                             1,0,1,1,1,0,0,1,0,0,& !61-70
+                             0,0,0,0,0,0,0,0,0,0,& !71-80
+                             0,0,0,0,0,0,0,0,0,1,& !81-90
+                             0,0,0,0,0,1,1,0]      !91-98
+   else if(nlst(1)%io_config_outputs .eq. 6) then
       ! Diagnostics
-      fileMeta%outFlag(:) = [0,0,0,0,0,0,0,0,0,0,1,1,1,1,1,0,0,0,0,1,&
-                             1,0,0,0,0,0,0,1,1,1,0,0,0,0,0,0,0,0,0,0,&
-                             0,0,0,0,1,0,0,0,0,0,0,0,0,0,0,0,0,0,1,1,&
-                             1,0,1,1,1,0,1,1,0,1,0,0,0,0,0,0,0,0,0,0,&
-                             0,0,0,0,0,0,0,0,0,1,1,1,1,1,1,0,0]
+      fileMeta%outFlag(:) = [0,0,0,0,0,0,0,0,0,0,& !1-10
+                             1,1,1,1,1,0,0,0,0,1,& !11-20
+                             1,0,0,0,0,0,0,1,1,1,& !21-30
+                             0,0,0,0,0,0,0,0,0,0,& !31-40
+                             0,0,0,0,1,0,0,0,0,0,& !41-50
+                             0,0,0,0,0,0,0,0,1,1,& !51-60
+                             1,0,1,1,1,0,1,1,0,1,& !61-70
+                             0,0,0,0,0,0,0,0,0,0,& !71-80
+                             0,0,0,0,0,0,0,0,0,1,& !81-90
+                             1,1,1,1,1,0,0,0]      !91-98
    else
       call nwmCheck(diagFlag,1,'ERROR: Invalid IOC flag provided by namelist file.')
    endif
 
    ! call the GetModelConfigType function
-   modelConfigType = GetModelConfigType(nlst_rt(1)%io_config_outputs)
+   modelConfigType = GetModelConfigType(nlst(1)%io_config_outputs)
 
    ! Sync all processes up.
    if(mppFlag .eq. 1) then
@@ -1261,7 +1303,7 @@ subroutine output_NoahMP_NWM(outDir,iGrid,output_timestep,itime,startdate,date,i
          call nwmCheck(diagFlag,iret,'ERROR: Unable to place CF conventions attribute into LDASOUT file.')
          iret = nf90_put_att(ftnNoahMP,NF90_GLOBAL,"code_version",trim(get_code_version()))
          call nwmCheck(diagFlag,iret,'ERROR: Unable to create code_version attribute')
-#ifdef NCEP_WCOSS
+#ifdef NWM_META
          iret = nf90_put_att(ftnNoahMP,NF90_GLOBAL,"NWM_version_number",trim(get_nwm_version()))
          call nwmCheck(diagFlag,iret,'ERROR: Unable to create NWM_version_number attribute')
 #endif
@@ -1287,11 +1329,11 @@ subroutine output_NoahMP_NWM(outDir,iGrid,output_timestep,itime,startdate,date,i
          call nwmCheck(diagFlag,iret,'ERROR: Unable to define snow_layers dimension')
          iret = nf90_def_dim(ftnNoahMP,'reference_time',1,dimId(6))
          call nwmCheck(diagFlag,iret,'ERROR: Unable to define reference_time dimension')
-         ! Only create vis_nir if we are outputting the two snow albedo variables. 
+         ! Only create vis_nir if we are outputting the two snow albedo variables.
          ! Otherwise these are unecessary dimensions.
          if ((fileMeta%outFlag(96) .eq. 1) .or. (fileMeta%outFlag(96) .eq. 1)) then
-            iret = nf90_def_dim(ftnNoahMP,'vis_nir',fileMeta%numSpectrumBands,dimId(7))
-            call nwmCheck(diagFlag,iret,'ERROR: Unable to define vis_nir dimension')
+         iret = nf90_def_dim(ftnNoahMP,'vis_nir',fileMeta%numSpectrumBands,dimId(7))
+         call nwmCheck(diagFlag,iret,'ERROR: Unable to define vis_nir dimension')
          endif
 
          ! Create and populate reference_time and time variables.
@@ -1341,7 +1383,7 @@ subroutine output_NoahMP_NWM(outDir,iGrid,output_timestep,itime,startdate,date,i
          end do
 
          ! Define compression if chosen.
-         if((nlst_rt(1)%io_form_outputs .eq. 1) .or. (nlst_rt(1)%io_form_outputs .eq. 3)) then
+         if((nlst(1)%io_form_outputs .eq. 1) .or. (nlst(1)%io_form_outputs .eq. 3)) then
             iret = nf90_def_var_deflate(ftn,timeId,0,1,2)
             call nwmCheck(diagFlag,iret,'ERROR: Unable to define compression level for time.')
             iret = nf90_def_var_deflate(ftn,refTimeId,0,1,2)
@@ -1370,7 +1412,7 @@ subroutine output_NoahMP_NWM(outDir,iGrid,output_timestep,itime,startdate,date,i
          ! metadata attributes.
          do iTmp=1,fileMeta%numVars
             if(fileMeta%outFlag(iTmp) .eq. 1) then
-               if((nlst_rt(1)%io_form_outputs .eq. 1) .or. (nlst_rt(1)%io_form_outputs .eq. 2)) then
+               if((nlst(1)%io_form_outputs .eq. 1) .or. (nlst(1)%io_form_outputs .eq. 2)) then
                   if(fileMeta%numLev(iTmp) .eq. fileMeta%numSoilLayers) then
                      iret = nf90_def_var(ftnNoahMP,trim(fileMeta%varNames(iTmp)),nf90_int,(/dimId(2),dimId(4),dimId(3),dimId(1)/),varId)
                   else if(fileMeta%numLev(iTmp) .eq. fileMeta%numSnowLayers) then
@@ -1404,7 +1446,7 @@ subroutine output_NoahMP_NWM(outDir,iGrid,output_timestep,itime,startdate,date,i
                ! filter off for now. Kelley Eicher did some testing with this and
                ! determined that the benefit wasn't worth the extra time spent writing output.
                ! Only compress if io_form_outputs is set to 1.
-               if((nlst_rt(1)%io_form_outputs .eq. 1) .or. (nlst_rt(1)%io_form_outputs .eq. 3)) then
+               if((nlst(1)%io_form_outputs .eq. 1) .or. (nlst(1)%io_form_outputs .eq. 3)) then
                   iret = nf90_def_var_deflate(ftnNoahMP,varId,0,1,2)
                   call nwmCheck(diagFlag,iret,'ERROR: Unable to define compression for: '//trim(fileMeta%varNames(iTmp)))
                endif
@@ -1416,7 +1458,7 @@ subroutine output_NoahMP_NWM(outDir,iGrid,output_timestep,itime,startdate,date,i
                call nwmCheck(diagFlag,iret,'ERROR: Unable to place units attribute into variable '//trim(fileMeta%varNames(iTmp)))
                iret = nf90_put_att(ftnNoahMP,varId,'grid_mapping','crs')
                call nwmCheck(diagFlag,iret,'ERROR: Unable to place grid_mapping attribute into variable: '//trim(fileMeta%varNames(iTmp)))
-               if((nlst_rt(1)%io_form_outputs .eq. 1) .or. (nlst_rt(1)%io_form_outputs .eq. 2)) then
+               if((nlst(1)%io_form_outputs .eq. 1) .or. (nlst(1)%io_form_outputs .eq. 2)) then
                   iret = nf90_put_att(ftnNoahMP,varId,'_FillValue',fileMeta%fillComp(iTmp))
                   call nwmCheck(diagFlag,iret,'ERROR: Unable to place Fill value attribute into variable '//trim(fileMeta%varNames(iTmp)))
                   iret = nf90_put_att(ftnNoahMP,varId,'missing_value',fileMeta%missingComp(iTmp))
@@ -1454,7 +1496,7 @@ subroutine output_NoahMP_NWM(outDir,iGrid,output_timestep,itime,startdate,date,i
          allocate(xCoord(global_nx))
          allocate(yCoord(global_ny))
          allocate(yCoord2(global_ny))
-         iret = nf90_open(trim(nlst_rt(1)%land_spatial_meta_flnm),NF90_NOWRITE,ncid=ftnGeo)
+         iret = nf90_open(trim(nlst(1)%land_spatial_meta_flnm),NF90_NOWRITE,ncid=ftnGeo)
          if(iret .ne. 0) then
             ! Spatial metadata file not found for land grid. Warn the user no
             ! file was found, and set x/y coordinates to -9999.0
@@ -1614,7 +1656,7 @@ subroutine output_NoahMP_NWM(outDir,iGrid,output_timestep,itime,startdate,date,i
       if(myId .eq. 0) then
          iret = nf90_inq_varid(ftnNoahMP,trim(fileMeta%varNames(varInd)),varId)
          call nwmCheck(diagFlag,iret,'ERROR: Unable to find variable ID for var: '//trim(fileMeta%varNames(varInd)))
-         if((nlst_rt(1)%io_form_outputs .eq. 1) .or. (nlst_rt(1)%io_form_outputs .eq. 2)) then
+         if((nlst(1)%io_form_outputs .eq. 1) .or. (nlst(1)%io_form_outputs .eq. 2)) then
             if(fileMeta%numLev(varInd) .eq. 1) then
                iret = nf90_put_var(ftnNoahMP,varId,globalOutComp,(/1,1,1/),(/global_nx,global_ny,1/))
             else
@@ -1676,7 +1718,7 @@ end subroutine output_NoahMP_NWM
 
 subroutine output_rt_NWM(domainId,iGrid)
    use module_rt_data, only: rt_domain
-   use module_namelist, only: nlst_rt
+   use config_base, only: nlst
    use Module_Date_utilities_rt, only: geth_newdate, geth_idts
    use module_NWM_io_dict
    use netcdf
@@ -1726,7 +1768,7 @@ subroutine output_rt_NWM(domainId,iGrid)
    integer :: numLev ! This will be 4 for soil moisture, and 1 for all other variables.
    character (len=64) :: modelConfigType ! This is character verion (long name) for the io_config_outputs
    real :: scaleFactorReciprocal
-! Establish macro variables to hlep guide this subroutine. 
+! Establish macro variables to hlep guide this subroutine.
 #ifdef MPP_LAND
    mppFlag = 1
 #else
@@ -1751,7 +1793,7 @@ subroutine output_rt_NWM(domainId,iGrid)
    endif
 
    ! Some sanity checking here.
-   if(nlst_rt(domainId)%RTOUT_DOMAIN .eq. 0) then
+   if(nlst(domainId)%RTOUT_DOMAIN .eq. 0) then
       ! No output requested here. Return to the parent calling program.
       return
    endif
@@ -1760,25 +1802,25 @@ subroutine output_rt_NWM(domainId,iGrid)
    ! for the output file.
    call initRtDomainDict(fileMeta,myId,diagFlag)
 
-   if(nlst_rt(domainId)%io_config_outputs .eq. 0) then
+   if(nlst(domainId)%io_config_outputs .eq. 0) then
       ! All
       fileMeta%outFlag(:) = [1,1,1,1,1]
-   else if(nlst_rt(domainId)%io_config_outputs .eq. 1) then
+   else if(nlst(domainId)%io_config_outputs .eq. 1) then
       ! Analysis and Assimilation
       fileMeta%outFlag(:) = [1,1,0,0,0]
-   else if(nlst_rt(domainId)%io_config_outputs .eq. 2) then
+   else if(nlst(domainId)%io_config_outputs .eq. 2) then
       ! Short Range
       fileMeta%outFlag(:) = [1,1,0,0,0]
-   else if(nlst_rt(domainId)%io_config_outputs .eq. 3) then
+   else if(nlst(domainId)%io_config_outputs .eq. 3) then
       ! Medium Range
       fileMeta%outFlag(:) = [1,1,0,0,0]
-   else if(nlst_rt(domainId)%io_config_outputs .eq. 4) then
+   else if(nlst(domainId)%io_config_outputs .eq. 4) then
       ! Long Range
       fileMeta%outFlag(:) = [1,1,0,0,0]
-   else if(nlst_rt(domainId)%io_config_outputs .eq. 5) then
+   else if(nlst(domainId)%io_config_outputs .eq. 5) then
       ! Retrospective
       fileMeta%outFlag(:) = [1,1,0,0,0]
-   else if(nlst_rt(domainId)%io_config_outputs .eq. 6) then
+   else if(nlst(domainId)%io_config_outputs .eq. 6) then
       ! Diagnostics
       fileMeta%outFlag(:) = [1,1,0,0,0]
    else
@@ -1786,53 +1828,55 @@ subroutine output_rt_NWM(domainId,iGrid)
    endif
 
    ! call the GetModelConfigType function
-   modelConfigType = GetModelConfigType(nlst_rt(1)%io_config_outputs)
+   modelConfigType = GetModelConfigType(nlst(1)%io_config_outputs)
 
    ! Calculate datetime information.
    ! First compose strings of EPOCH and simulation start date.
    epochDate = trim("1970-01-01 00:00")
-   startDate = trim(nlst_rt(domainId)%startdate(1:4)//"-"//&
-                    nlst_rt(domainId)%startdate(6:7)//&
-                    &"-"//nlst_rt(domainId)%startdate(9:10)//" "//&
-                    nlst_rt(domainId)%startdate(12:13)//":"//&
-                    nlst_rt(domainId)%startdate(15:16))
+   startDate = trim(nlst(domainId)%startdate(1:4)//"-"//&
+                    nlst(domainId)%startdate(6:7)//&
+                    &"-"//nlst(domainId)%startdate(9:10)//" "//&
+                    nlst(domainId)%startdate(12:13)//":"//&
+                    nlst(domainId)%startdate(15:16))
    ! Second, utilize NoahMP date utilities to calculate the number of minutes
    ! from EPOCH to the beginning of the model simulation.
    call geth_idts(startDate,epochDate,minSinceEpoch1)
    ! Third, calculate the number of minutes since the beginning of the
    ! simulation.
-   minSinceSim = int(nlst_rt(1)%out_dt*(rt_domain(1)%out_counts-1))
+   minSinceSim = int(nlst(1)%out_dt*(rt_domain(1)%out_counts-1))
    ! Fourth, calculate the total number of minutes from EPOCH to the current
    ! model time step.
    minSinceEpoch = minSinceEpoch1 + minSinceSim
    ! Fifth, compose global attribute time strings that will be used.
-   validTime = trim(nlst_rt(domainId)%olddate(1:4)//'-'//&
-                    nlst_rt(domainId)%olddate(6:7)//'-'//&
-                    nlst_rt(domainId)%olddate(9:10)//'_'//&
-                    nlst_rt(domainId)%olddate(12:13)//&
-                    &':00:00')
-   initTime = trim(nlst_rt(domainId)%startdate(1:4)//'-'//&
-                  nlst_rt(domainId)%startdate(6:7)//'-'//&
-                  nlst_rt(domainId)%startdate(9:10)//'_'//&
-                  nlst_rt(domainId)%startdate(12:13)//&
-                  &':00:00')
+   validTime = trim(nlst(domainId)%olddate(1:4)//'-'//&
+                    nlst(domainId)%olddate(6:7)//'-'//&
+                    nlst(domainId)%olddate(9:10)//'_'//&
+                    nlst(domainId)%olddate(12:13)//':'//&
+                    nlst(domainId)%olddate(15:16)//&
+                    &':00')
+   initTime = trim(nlst(domainId)%startdate(1:4)//'-'//&
+                  nlst(domainId)%startdate(6:7)//'-'//&
+                  nlst(domainId)%startdate(9:10)//'_'//&
+                  nlst(domainId)%startdate(12:13)//':'//&
+                  nlst(domainId)%startdate(15:16)//&
+                  &':00')
    ! Replace default values in the dictionary.
    fileMeta%initTime = trim(initTime)
    fileMeta%validTime = trim(validTime)
 
    ! calculate the minimum and maximum time
-   fileMeta%timeValidMin = minSinceEpoch1 + nlst_rt(1)%out_dt
-   fileMeta%timeValidMax = minSinceEpoch1 + int(nlst_rt(1)%khour * 60/nlst_rt(1)%out_dt) * nlst_rt(1)%out_dt
+   fileMeta%timeValidMin = minSinceEpoch1 + nlst(1)%out_dt
+   fileMeta%timeValidMax = minSinceEpoch1 + int(nlst(1)%khour * 60/nlst(1)%out_dt) * nlst(1)%out_dt
 
    ! calculate total_valid_time
-   fileMeta%totalValidTime = int(nlst_rt(1)%khour * 60 / nlst_rt(1)%out_dt)  ! # number of valid time (#of output files)
+   fileMeta%totalValidTime = int(nlst(1)%khour * 60 / nlst(1)%out_dt)  ! # number of valid time (#of output files)
 
    ! Create output filename
-   write(output_flnm, '(A12,".RTOUT_DOMAIN",I1)') nlst_rt(domainId)%olddate(1:4)//&
-                       nlst_rt(domainId)%olddate(6:7)//&
-                       nlst_rt(domainId)%olddate(9:10)//&
-                       nlst_rt(domainId)%olddate(12:13)//&
-                       nlst_rt(domainId)%olddate(15:16), igrid
+   write(output_flnm, '(A12,".RTOUT_DOMAIN",I1)') nlst(domainId)%olddate(1:4)//&
+                       nlst(domainId)%olddate(6:7)//&
+                       nlst(domainId)%olddate(9:10)//&
+                       nlst(domainId)%olddate(12:13)//&
+                       nlst(domainId)%olddate(15:16), igrid
 
    if(myId .eq. 0) then
       ! Create output NetCDF file for writing.
@@ -1850,7 +1894,7 @@ subroutine output_rt_NWM(domainId,iGrid)
       call nwmCheck(diagFlag,iret,'ERROR: Unable to place CF conventions attribute into RT_DOMAIN file.')
       iret = nf90_put_att(ftn,NF90_GLOBAL,"code_version",trim(get_code_version()))
       call nwmCheck(diagFlag,iret,'ERROR: Unable to create code_version attribute')
-#ifdef NCEP_WCOSS
+#ifdef NWM_META
       iret = nf90_put_att(ftn,NF90_GLOBAL,"NWM_version_number",trim(get_nwm_version()))
       call nwmCheck(diagFlag,iret,'ERROR: Unable to create NWM_version_number attribute')
 #endif
@@ -1871,12 +1915,12 @@ subroutine output_rt_NWM(domainId,iGrid)
       iret = nf90_def_dim(ftn,'y',RT_DOMAIN(domainId)%g_jxrt,dimId(3))
       call nwmCheck(diagFlag,iret,'ERROR: Unable to define y dimension')
       iret = nf90_def_dim(ftn,'reference_time',1,dimId(4))
-      call nwmCheck(diagFlag,iret,'ERROR: Unable to define reference_time dimension') 
-      ! Only create soil layers stag dimension if we are outputting to the soil moisture grid. 
-      ! Otherwise this creates unused dimensions. 
+      call nwmCheck(diagFlag,iret,'ERROR: Unable to define reference_time dimension')
+      ! Only create soil layers stag dimension if we are outputting to the soil moisture grid.
+      ! Otherwise this creates unused dimensions.
       if (fileMeta%outFlag(5) .eq. 1) then
-         iret = nf90_def_dim(ftn,'soil_layers_stag',fileMeta%numSoilLayers,dimId(5))
-         call nwmCheck(diagFlag,iret,'ERROR: Unable to define soil_layers_stag dimension')
+      iret = nf90_def_dim(ftn,'soil_layers_stag',fileMeta%numSoilLayers,dimId(5))
+      call nwmCheck(diagFlag,iret,'ERROR: Unable to define soil_layers_stag dimension')
       endif
 
       ! Create and populate reference_time and time variables.
@@ -1926,7 +1970,7 @@ subroutine output_rt_NWM(domainId,iGrid)
       end do
 
       ! Define compression for meta-variables only if io_form_outputs is set to 1.
-      if((nlst_rt(1)%io_form_outputs .eq. 1) .or. (nlst_rt(1)%io_form_outputs .eq. 3)) then
+      if((nlst(1)%io_form_outputs .eq. 1) .or. (nlst(1)%io_form_outputs .eq. 3)) then
          iret = nf90_def_var_deflate(ftn,timeId,0,1,2)
          call nwmCheck(diagFlag,iret,'ERROR: Unable to define compression level for time.')
          iret = nf90_def_var_deflate(ftn,refTimeId,0,1,2)
@@ -1957,14 +2001,14 @@ subroutine output_rt_NWM(domainId,iGrid)
          if(fileMeta%outFlag(iTmp) .eq. 1) then
             if(iTmp .eq. 5) then
                ! Soil Moisture
-               if((nlst_rt(1)%io_form_outputs .eq. 1) .or. (nlst_rt(1)%io_form_outputs .eq. 2)) then
+               if((nlst(1)%io_form_outputs .eq. 1) .or. (nlst(1)%io_form_outputs .eq. 2)) then
                   iret = nf90_def_var(ftn,trim(fileMeta%varNames(iTmp)),nf90_int,(/dimId(2),dimId(5),dimId(3),dimId(1)/),varId)
                else
                   iret = nf90_def_var(ftn,trim(fileMeta%varNames(iTmp)),nf90_float,(/dimId(2),dimId(5),dimId(3),dimId(1)/),varId)
                endif
             else
                ! All other variables
-               if((nlst_rt(1)%io_form_outputs .eq. 1) .or. (nlst_rt(1)%io_form_outputs .eq. 2)) then
+               if((nlst(1)%io_form_outputs .eq. 1) .or. (nlst(1)%io_form_outputs .eq. 2)) then
                   iret = nf90_def_var(ftn,trim(fileMeta%varNames(iTmp)),nf90_int,(/dimId(2),dimId(3),dimId(1)/),varId)
                else
                   iret = nf90_def_var(ftn,trim(fileMeta%varNames(iTmp)),nf90_float,(/dimId(2),dimId(3),dimId(1)/),varId)
@@ -1983,7 +2027,7 @@ subroutine output_rt_NWM(domainId,iGrid)
             ! filter off for now. Kelley Eicher did some testing with this and
             ! determined that the benefit wasn't worth the extra time spent writing output.
             ! Only compress if io_form_outputs is set to 1.
-            if((nlst_rt(1)%io_form_outputs .eq. 1) .or. (nlst_rt(1)%io_form_outputs .eq. 3)) then
+            if((nlst(1)%io_form_outputs .eq. 1) .or. (nlst(1)%io_form_outputs .eq. 3)) then
                iret = nf90_def_var_deflate(ftn,varId,0,1,2)
                call nwmCheck(diagFlag,iret,'ERROR: Unable to define compression for: '//trim(fileMeta%varNames(iTmp)))
             endif
@@ -1995,7 +2039,7 @@ subroutine output_rt_NWM(domainId,iGrid)
             call nwmCheck(diagFlag,iret,'ERROR: Unable to place units attribute into variable '//trim(fileMeta%varNames(iTmp)))
             iret = nf90_put_att(ftn,varId,'grid_mapping','crs')
             call nwmCheck(diagFlag,iret,'ERROR: Unable to place grid_mapping attribute into variable: '//trim(fileMeta%varNames(iTmp)))
-            if((nlst_rt(1)%io_form_outputs .eq. 1) .or. (nlst_rt(1)%io_form_outputs .eq. 2)) then
+            if((nlst(1)%io_form_outputs .eq. 1) .or. (nlst(1)%io_form_outputs .eq. 2)) then
                iret = nf90_put_att(ftn,varId,'_FillValue',fileMeta%fillComp(iTmp))
                call nwmCheck(diagFlag,iret,'ERROR: Unable to place Fill value attribute into variable '//trim(fileMeta%varNames(iTmp)))
                iret = nf90_put_att(ftn,varId,'missing_value',fileMeta%missingComp(iTmp))
@@ -2033,7 +2077,7 @@ subroutine output_rt_NWM(domainId,iGrid)
       allocate(xCoord(RT_DOMAIN(domainId)%g_ixrt))
       allocate(yCoord(RT_DOMAIN(domainId)%g_jxrt))
       allocate(yCoord2(RT_DOMAIN(domainId)%g_jxrt))
-      iret = nf90_open(trim(nlst_rt(domainId)%geo_finegrid_flnm),NF90_NOWRITE,ncid=ftnGeo)
+      iret = nf90_open(trim(nlst(domainId)%geo_finegrid_flnm),NF90_NOWRITE,ncid=ftnGeo)
       call nwmCheck(diagFlag,iret,'ERROR: Unable to open FullDom file')
       iret = nf90_inq_varid(ftnGeo,'x',geoXVarId)
       call nwmCheck(diagFlag,iret,'ERROR: Unable to find x coordinate in FullDom file')
@@ -2097,8 +2141,8 @@ subroutine output_rt_NWM(domainId,iGrid)
 
       scaleFactorReciprocal = 1/fileMeta%scaleFactor(iTmp2)
 
-      if(fileMeta%outFlag(iTmp2) .eq. 1) then   
-         !Allocate memory necessary 
+      if(fileMeta%outFlag(iTmp2) .eq. 1) then
+         !Allocate memory necessary
          if(myId .eq. 0) then
             allocate(globalOutComp(RT_DOMAIN(domainId)%g_ixrt,numLev,RT_DOMAIN(domainId)%g_jxrt))
             allocate(globalOutReal(RT_DOMAIN(domainId)%g_ixrt,numLev,RT_DOMAIN(domainId)%g_jxrt))
@@ -2131,7 +2175,7 @@ subroutine output_rt_NWM(domainId,iGrid)
             do iTmp = 1,RT_DOMAIN(domainId)%ixrt
                do jTmp = 1,RT_DOMAIN(domainId)%jxrt
                   if(iTmp2 .eq. 1) then
-                     varRealTmp = RT_DOMAIN(domainId)%ZWATTABLRT(iTmp,jTmp)
+                     varRealTmp = rt_domain(domainId)%subsurface%properties%zwattablrt(iTmp,jTmp)
                   else if(iTmp2 .eq. 2) then
                      varRealTmp = RT_DOMAIN(domainId)%overland%control%surface_water_head_routing(iTmp,jTmp)
                   else if(iTmp2 .eq. 3) then
@@ -2139,7 +2183,7 @@ subroutine output_rt_NWM(domainId,iGrid)
                   else if(iTmp2 .eq. 4) then
                      varRealTmp = RT_DOMAIN(domainId)%overland%control%boundary_flux(iTmp,jTmp)
                   else if(iTmp2 .eq. 5) then
-                     varRealTmp = RT_DOMAIN(domainId)%SMCRT(iTmp,jTmp,zTmp)
+                     varRealTmp = rt_domain(domainId)%subsurface%grid_transform%smcrt(iTmp,jTmp,zTmp)
                   endif
 
                   ! Run a quick gross check on values to ensure they aren't outside our
@@ -2194,13 +2238,13 @@ subroutine output_rt_NWM(domainId,iGrid)
             iret = nf90_inq_varid(ftn,trim(fileMeta%varNames(iTmp2)),varId)
             call nwmCheck(diagFlag,iret,'ERROR: Unable to find variable ID for var: '//trim(fileMeta%varNames(iTmp2)))
             if(numLev .eq. 1) then
-               if((nlst_rt(1)%io_form_outputs .eq. 1) .or. (nlst_rt(1)%io_form_outputs .eq. 2)) then
+               if((nlst(1)%io_form_outputs .eq. 1) .or. (nlst(1)%io_form_outputs .eq. 2)) then
                   iret = nf90_put_var(ftn,varId,globalOutComp,(/1,1,1/),(/RT_DOMAIN(domainId)%g_ixrt,RT_DOMAIN(domainId)%g_jxrt,1/))
                else
                   iret = nf90_put_var(ftn,varId,globalOutReal,(/1,1,1/),(/RT_DOMAIN(domainId)%g_ixrt,RT_DOMAIN(domainId)%g_jxrt,1/))
                endif
             else
-               if((nlst_rt(1)%io_form_outputs .eq. 1) .or. (nlst_rt(1)%io_form_outputs .eq. 2)) then
+               if((nlst(1)%io_form_outputs .eq. 1) .or. (nlst(1)%io_form_outputs .eq. 2)) then
                   iret = nf90_put_var(ftn,varId,globalOutComp,(/1,1,1,1/),(/RT_DOMAIN(domainId)%g_ixrt,numLev,RT_DOMAIN(domainId)%g_jxrt,1/))
                else
                   iret = nf90_put_var(ftn,varId,globalOutReal,(/1,1,1,1/),(/RT_DOMAIN(domainId)%g_ixrt,numLev,RT_DOMAIN(domainId)%g_jxrt,1/))
@@ -2242,7 +2286,7 @@ end subroutine output_rt_NWM
 
 subroutine output_lakes_NWM(domainId,iGrid)
    use module_rt_data, only: rt_domain
-   use module_namelist, only: nlst_rt
+   use config_base, only: nlst
    use Module_Date_utilities_rt, only: geth_newdate, geth_idts
    use module_NWM_io_dict
    use netcdf
@@ -2330,7 +2374,7 @@ subroutine output_lakes_NWM(domainId,iGrid)
    endif
 
    ! Some sanity checking here.
-   if(nlst_rt(domainId)%outlake .eq. 0) then
+   if(nlst(domainId)%outlake .eq. 0) then
       ! No output requested here. Return to the parent calling program.
       return
    endif
@@ -2339,25 +2383,25 @@ subroutine output_lakes_NWM(domainId,iGrid)
    ! for the output file.
    call initLakeDict(fileMeta,myId,diagFlag)
 
-   if(nlst_rt(1)%io_config_outputs .eq. 0) then
+   if(nlst(1)%io_config_outputs .eq. 0) then
       ! All
       fileMeta%outFlag(:) = [1,1]
-   else if(nlst_rt(1)%io_config_outputs .eq. 1) then
+   else if(nlst(1)%io_config_outputs .eq. 1) then
       ! Analysis and Assimilation
       fileMeta%outFlag(:) = [1,1]
-   else if(nlst_rt(1)%io_config_outputs .eq. 2) then
+   else if(nlst(1)%io_config_outputs .eq. 2) then
       ! Short Range
       fileMeta%outFlag(:) = [1,1]
-   else if(nlst_rt(1)%io_config_outputs .eq. 3) then
+   else if(nlst(1)%io_config_outputs .eq. 3) then
       ! Medium Range
       fileMeta%outFlag(:) = [1,1]
-   else if(nlst_rt(1)%io_config_outputs .eq. 4) then
+   else if(nlst(1)%io_config_outputs .eq. 4) then
       ! Long Range
       fileMeta%outFlag(:) = [1,1]
-   else if(nlst_rt(1)%io_config_outputs .eq. 5) then
+   else if(nlst(1)%io_config_outputs .eq. 5) then
       ! Retrospective
       fileMeta%outFlag(:) = [1,1]
-   else if(nlst_rt(1)%io_config_outputs .eq. 6) then
+   else if(nlst(1)%io_config_outputs .eq. 6) then
       ! Diagnostics
       fileMeta%outFlag(:) = [1,1]
    else
@@ -2365,7 +2409,7 @@ subroutine output_lakes_NWM(domainId,iGrid)
    endif
 
    ! call the GetModelConfigType function
-   modelConfigType = GetModelConfigType(nlst_rt(1)%io_config_outputs)
+   modelConfigType = GetModelConfigType(nlst(1)%io_config_outputs)
 
    ! First step is to collect and assemble all data that will be written to the
    ! NetCDF file. If we are not using MPI, we bypass the collection step through
@@ -2453,53 +2497,55 @@ subroutine output_lakes_NWM(domainId,iGrid)
    ! Calculate datetime information.
    ! First compose strings of EPOCH and simulation start date.
    epochDate = trim("1970-01-01 00:00")
-   startDate = trim(nlst_rt(domainId)%startdate(1:4)//"-"//&
-                    nlst_rt(domainId)%startdate(6:7)//&
-                    &"-"//nlst_rt(domainId)%startdate(9:10)//" "//&
-                    nlst_rt(domainId)%startdate(12:13)//":"//&
-                    nlst_rt(domainId)%startdate(15:16))
+   startDate = trim(nlst(domainId)%startdate(1:4)//"-"//&
+                    nlst(domainId)%startdate(6:7)//&
+                    &"-"//nlst(domainId)%startdate(9:10)//" "//&
+                    nlst(domainId)%startdate(12:13)//":"//&
+                    nlst(domainId)%startdate(15:16))
    ! Second, utilize NoahMP date utilities to calculate the number of minutes
    ! from EPOCH to the beginning of the model simulation.
    call geth_idts(startDate,epochDate,minSinceEpoch1)
    ! Third, calculate the number of minutes since the beginning of the
    ! simulation.
-   minSinceSim = int(nlst_rt(1)%out_dt*(rt_domain(1)%out_counts-1))
+   minSinceSim = int(nlst(1)%out_dt*(rt_domain(1)%out_counts-1))
    ! Fourth, calculate the total number of minutes from EPOCH to the current
    ! model time step.
    minSinceEpoch = minSinceEpoch1 + minSinceSim
    ! Fifth, compose global attribute time strings that will be used.
-   validTime = trim(nlst_rt(domainId)%olddate(1:4)//'-'//&
-                    nlst_rt(domainId)%olddate(6:7)//'-'//&
-                    nlst_rt(domainId)%olddate(9:10)//'_'//&
-                    nlst_rt(domainId)%olddate(12:13)//&
-                    &':00:00')
-   initTime = trim(nlst_rt(domainId)%startdate(1:4)//'-'//&
-                  nlst_rt(domainId)%startdate(6:7)//'-'//&
-                  nlst_rt(domainId)%startdate(9:10)//'_'//&
-                  nlst_rt(domainId)%startdate(12:13)//&
-                  &':00:00')
+   validTime = trim(nlst(domainId)%olddate(1:4)//'-'//&
+                    nlst(domainId)%olddate(6:7)//'-'//&
+                    nlst(domainId)%olddate(9:10)//'_'//&
+                    nlst(domainId)%olddate(12:13)//':'//&
+                    nlst(domainId)%olddate(15:16)//&
+                    &':00')
+   initTime = trim(nlst(domainId)%startdate(1:4)//'-'//&
+                  nlst(domainId)%startdate(6:7)//'-'//&
+                  nlst(domainId)%startdate(9:10)//'_'//&
+                  nlst(domainId)%startdate(12:13)//':'//&
+                  nlst(domainId)%startdate(15:16)//&
+                  &':00')
    ! Replace default values in the dictionary.
    fileMeta%initTime = trim(initTime)
    fileMeta%validTime = trim(validTime)
 
    ! calculate the minimum and maximum time
-   fileMeta%timeValidMin = minSinceEpoch1 + nlst_rt(1)%out_dt
-   fileMeta%timeValidMax = minSinceEpoch1 + int(nlst_rt(1)%khour * 60/nlst_rt(1)%out_dt) * nlst_rt(1)%out_dt
+   fileMeta%timeValidMin = minSinceEpoch1 + nlst(1)%out_dt
+   fileMeta%timeValidMax = minSinceEpoch1 + int(nlst(1)%khour * 60/nlst(1)%out_dt) * nlst(1)%out_dt
 
    ! calculate total_valid_time
-   fileMeta%totalValidTime = int(nlst_rt(1)%khour * 60 / nlst_rt(1)%out_dt)  ! # number of valid time (#of output files)
+   fileMeta%totalValidTime = int(nlst(1)%khour * 60 / nlst(1)%out_dt)  ! # number of valid time (#of output files)
 
    ! Compose output file name.
-   write(output_flnm, '(A12,".LAKEOUT_DOMAIN",I1)')nlst_rt(domainId)%olddate(1:4)//&
-         nlst_rt(domainId)%olddate(6:7)//nlst_rt(domainId)%olddate(9:10)//&
-         nlst_rt(domainId)%olddate(12:13)//nlst_rt(domainId)%olddate(15:16),nlst_rt(domainId)%igrid
+   write(output_flnm, '(A12,".LAKEOUT_DOMAIN",I1)')nlst(domainId)%olddate(1:4)//&
+         nlst(domainId)%olddate(6:7)//nlst(domainId)%olddate(9:10)//&
+         nlst(domainId)%olddate(12:13)//nlst(domainId)%olddate(15:16),nlst(domainId)%igrid
 
    ! Only run NetCDF library calls to output data if we are on the master
    ! processor.
    if(myId .eq. 0) then
       ! Read in index values from Routelink that will be used to sort output
       ! variables by ascending feature_id.
-      iret = nf90_open(trim(nlst_rt(1)%route_lake_f),NF90_NOWRITE,ncid=ftnRt)
+      iret = nf90_open(trim(nlst(1)%route_lake_f),NF90_NOWRITE,ncid=ftnRt)
       call nwmCheck(diagFlag,iret,'ERROR: Unable to open LAKEPARM file for index extraction')
       iret = nf90_inq_varid(ftnRt,'ascendingIndex',indVarId)
       if(iret .ne. 0) then
@@ -2566,7 +2612,7 @@ subroutine output_lakes_NWM(domainId,iGrid)
       call nwmCheck(diagFlag,iret,'ERROR: Unable to create conventions attribute')
       iret = nf90_put_att(ftn,NF90_GLOBAL,"code_version",trim(get_code_version()))
       call nwmCheck(diagFlag,iret,'ERROR: Unable to create code_version attribute')
-#ifdef NCEP_WCOSS
+#ifdef NWM_META
       iret = nf90_put_att(ftn,NF90_GLOBAL,"NWM_version_number",trim(get_nwm_version()))
       call nwmCheck(diagFlag,iret,'ERROR: Unable to create NWM_version_number attribute')
 #endif
@@ -2675,7 +2721,7 @@ subroutine output_lakes_NWM(domainId,iGrid)
 
       ! Define deflation levels for these meta-variables. For now, we are going to
       ! default to a compression level of 2. Only compress if io_form_outputs is set to 1.
-      if((nlst_rt(1)%io_form_outputs .eq. 1) .or. (nlst_rt(1)%io_form_outputs .eq. 3)) then
+      if((nlst(1)%io_form_outputs .eq. 1) .or. (nlst(1)%io_form_outputs .eq. 3)) then
          iret = nf90_def_var_deflate(ftn,timeId,0,1,2)
          call nwmCheck(diagFlag,iret,'ERROR: Unable to define compression level for time.')
          iret = nf90_def_var_deflate(ftn,featureVarId,0,1,2)
@@ -2698,7 +2744,7 @@ subroutine output_lakes_NWM(domainId,iGrid)
       do iTmp=1,fileMeta%numVars
          if(fileMeta%outFlag(iTmp) .eq. 1) then
             ! First create variable
-            if((nlst_rt(1)%io_form_outputs .eq. 1) .or. (nlst_rt(1)%io_form_outputs .eq. 2)) then
+            if((nlst(1)%io_form_outputs .eq. 1) .or. (nlst(1)%io_form_outputs .eq. 2)) then
                iret = nf90_def_var(ftn,trim(fileMeta%varNames(iTmp)),nf90_int,dimId(1),varId)
             else
                iret = nf90_def_var(ftn,trim(fileMeta%varNames(iTmp)),nf90_float,dimId(1),varId)
@@ -2716,7 +2762,7 @@ subroutine output_lakes_NWM(domainId,iGrid)
             ! filter off for now. Kelley Eicher did some testing with this and
             ! determined that the benefit wasn't worth the extra time spent writing output.
             ! Only compress if io_form_outputs is set to 1.
-            if((nlst_rt(1)%io_form_outputs .eq. 1) .or. (nlst_rt(1)%io_form_outputs .eq. 3)) then
+            if((nlst(1)%io_form_outputs .eq. 1) .or. (nlst(1)%io_form_outputs .eq. 3)) then
                iret = nf90_def_var_deflate(ftn,varId,0,1,2)
                call nwmCheck(diagFlag,iret,'ERROR: Unable to define compression for: '//trim(fileMeta%varNames(iTmp)))
             endif
@@ -2730,7 +2776,7 @@ subroutine output_lakes_NWM(domainId,iGrid)
             call nwmCheck(diagFlag,iret,'ERROR: Unable to place coordinates attribute into variable '//trim(fileMeta%varNames(iTmp)))
             iret = nf90_put_att(ftn,varId,'grid_mapping','crs')
             call nwmCheck(diagFlag,iret,'ERROR: Unable to place grid_mapping attribute into variable '//trim(fileMeta%varNames(iTmp)))
-            if((nlst_rt(1)%io_form_outputs .eq. 1) .or. (nlst_rt(1)%io_form_outputs .eq. 2)) then
+            if((nlst(1)%io_form_outputs .eq. 1) .or. (nlst(1)%io_form_outputs .eq. 2)) then
                iret = nf90_put_att(ftn,varId,'_FillValue',fileMeta%fillComp(iTmp))
                call nwmCheck(diagFlag,iret,'ERROR: Unable to place Fill value attribute into variable '//trim(fileMeta%varNames(iTmp)))
                iret = nf90_put_att(ftn,varId,'missing_value',fileMeta%missingComp(iTmp))
@@ -2774,7 +2820,7 @@ subroutine output_lakes_NWM(domainId,iGrid)
             call nwmCheck(diagFlag,iret,'ERROR: Unable to find variable ID for var: '//trim(fileMeta%varNames(iTmp)))
 
             ! Put data into NetCDF file
-            if((nlst_rt(1)%io_form_outputs .eq. 1) .or. (nlst_rt(1)%io_form_outputs .eq. 2)) then
+            if((nlst(1)%io_form_outputs .eq. 1) .or. (nlst(1)%io_form_outputs .eq. 2)) then
                iret = nf90_put_var(ftn,varId,varOutInt)
             else
                iret = nf90_put_var(ftn,varId,varOutReal(iTmp,:))
@@ -2869,7 +2915,7 @@ end subroutine output_lakes_NWM
 
 subroutine output_chrtout_grd_NWM(domainId,iGrid)
    use module_rt_data, only: rt_domain
-   use module_namelist, only: nlst_rt
+   use config_base, only: nlst
    use Module_Date_utilities_rt, only: geth_newdate, geth_idts
    use module_NWM_io_dict
    use netcdf
@@ -2941,8 +2987,8 @@ subroutine output_chrtout_grd_NWM(domainId,iGrid)
    ! reach-based routing. Currently, this is not supported as we don't have a
    ! way to map reaches to individual cells on the channel grid in the Fulldom
    ! file.
-   if(nlst_rt(domainId)%CHRTOUT_GRID .eq. 1) then
-      if(nlst_rt(domainId)%channel_option .ne. 3) then
+   if(nlst(domainId)%CHRTOUT_GRID .eq. 1) then
+      if(nlst(domainId)%channel_option .ne. 3) then
          call postDiagMsg(diagFlag,'WARNING: CHRTOUT_GRID only available for gridded channel routing, not reach-based routing.')
          return
       endif
@@ -2960,7 +3006,7 @@ subroutine output_chrtout_grd_NWM(domainId,iGrid)
    endif
 
    ! Some sanity checking here.
-   if(nlst_rt(domainId)%CHRTOUT_GRID .eq. 0) then
+   if(nlst(domainId)%CHRTOUT_GRID .eq. 0) then
       ! No output requested here. Return to the parent calling program.
       return
    endif
@@ -2997,7 +3043,7 @@ subroutine output_chrtout_grd_NWM(domainId,iGrid)
          endif
       end do
    endif
-   if(nlst_rt(domainId)%channel_option .eq. 3) then
+   if(nlst(domainId)%channel_option .eq. 3) then
       call write_chanel_real(strFlowLocal,RT_DOMAIN(domainId)%map_l2g,gNumLnks,lNumLnks,g_qlink(:,1))
       call write_chanel_real(RT_DOMAIN(domainId)%qlink(:,2),RT_DOMAIN(domainId)%map_l2g,gNumLnks,lNumLnks,g_qlink(:,2))
    endif
@@ -3013,51 +3059,53 @@ subroutine output_chrtout_grd_NWM(domainId,iGrid)
    ! Calculate datetime information.
    ! First compose strings of EPOCH and simulation start date.
    epochDate = trim("1970-01-01 00:00")
-   startDate = trim(nlst_rt(domainId)%startdate(1:4)//"-"//&
-                    nlst_rt(domainId)%startdate(6:7)//&
-                    &"-"//nlst_rt(domainId)%startdate(9:10)//" "//&
-                    nlst_rt(domainId)%startdate(12:13)//":"//&
-                    nlst_rt(domainId)%startdate(15:16))
+   startDate = trim(nlst(domainId)%startdate(1:4)//"-"//&
+                    nlst(domainId)%startdate(6:7)//&
+                    &"-"//nlst(domainId)%startdate(9:10)//" "//&
+                    nlst(domainId)%startdate(12:13)//":"//&
+                    nlst(domainId)%startdate(15:16))
    ! Second, utilize NoahMP date utilities to calculate the number of minutes
    ! from EPOCH to the beginning of the model simulation.
    call geth_idts(startDate,epochDate,minSinceEpoch1)
    ! Third, calculate the number of minutes since the beginning of the
    ! simulation.
-   minSinceSim = int(nlst_rt(1)%out_dt*(rt_domain(1)%out_counts-1))
+   minSinceSim = int(nlst(1)%out_dt*(rt_domain(1)%out_counts-1))
    ! Fourth, calculate the total number of minutes from EPOCH to the current
    ! model time step.
    minSinceEpoch = minSinceEpoch1 + minSinceSim
    ! Fifth, compose global attribute time strings that will be used.
-   validTime = trim(nlst_rt(domainId)%olddate(1:4)//'-'//&
-                    nlst_rt(domainId)%olddate(6:7)//'-'//&
-                    nlst_rt(domainId)%olddate(9:10)//'_'//&
-                    nlst_rt(domainId)%olddate(12:13)//&
-                    &':00:00')
-   initTime = trim(nlst_rt(domainId)%startdate(1:4)//'-'//&
-                  nlst_rt(domainId)%startdate(6:7)//'-'//&
-                  nlst_rt(domainId)%startdate(9:10)//'_'//&
-                  nlst_rt(domainId)%startdate(12:13)//&
-                  &':00:00')
+   validTime = trim(nlst(domainId)%olddate(1:4)//'-'//&
+                    nlst(domainId)%olddate(6:7)//'-'//&
+                    nlst(domainId)%olddate(9:10)//'_'//&
+                    nlst(domainId)%olddate(12:13)//':'//&
+                    nlst(domainId)%olddate(15:16)//&
+                    &':00')
+   initTime = trim(nlst(domainId)%startdate(1:4)//'-'//&
+                  nlst(domainId)%startdate(6:7)//'-'//&
+                  nlst(domainId)%startdate(9:10)//'_'//&
+                  nlst(domainId)%startdate(12:13)//':'//&
+                  nlst(domainId)%startdate(15:16)//&
+                  &':00')
    ! Replace default values in the dictionary.
    fileMeta%initTime = trim(initTime)
    fileMeta%validTime = trim(validTime)
 
    ! calculate the minimum and maximum time
-   fileMeta%timeValidMin = minSinceEpoch1 + nlst_rt(1)%out_dt
-   fileMeta%timeValidMax = minSinceEpoch1 + int(nlst_rt(1)%khour * 60/nlst_rt(1)%out_dt) * nlst_rt(1)%out_dt
+   fileMeta%timeValidMin = minSinceEpoch1 + nlst(1)%out_dt
+   fileMeta%timeValidMax = minSinceEpoch1 + int(nlst(1)%khour * 60/nlst(1)%out_dt) * nlst(1)%out_dt
 
    ! calculate total_valid_time
-   fileMeta%totalValidTime = int(nlst_rt(1)%khour * 60 / nlst_rt(1)%out_dt)  ! # number of valid time (#of output files)
+   fileMeta%totalValidTime = int(nlst(1)%khour * 60 / nlst(1)%out_dt)  ! # number of valid time (#of output files)
 
    ! Create output filename
-   write(output_flnm, '(A12,".CHRTOUT_GRID",I1)') nlst_rt(domainId)%olddate(1:4)//&
-                       nlst_rt(domainId)%olddate(6:7)//&
-                       nlst_rt(domainId)%olddate(9:10)//&
-                       nlst_rt(domainId)%olddate(12:13)//&
-                       nlst_rt(domainId)%olddate(15:16), igrid
+   write(output_flnm, '(A12,".CHRTOUT_GRID",I1)') nlst(domainId)%olddate(1:4)//&
+                       nlst(domainId)%olddate(6:7)//&
+                       nlst(domainId)%olddate(9:10)//&
+                       nlst(domainId)%olddate(12:13)//&
+                       nlst(domainId)%olddate(15:16), igrid
 
    ! call the GetModelConfigType function
-   modelConfigType = GetModelConfigType(nlst_rt(1)%io_config_outputs)
+   modelConfigType = GetModelConfigType(nlst(1)%io_config_outputs)
 
    if(myId .eq. 0) then
       ! Create output NetCDF file for writing.
@@ -3075,7 +3123,7 @@ subroutine output_chrtout_grd_NWM(domainId,iGrid)
       call nwmCheck(diagFlag,iret,'ERROR: Unable to place CF conventions attribute into RT_DOMAIN file.')
       iret = nf90_put_att(ftn,NF90_GLOBAL,"code_version",trim(get_code_version()))
       call nwmCheck(diagFlag,iret,'ERROR: Unable to create code_version attribute')
-#ifdef NCEP_WCOSS
+#ifdef NWM_META
       iret = nf90_put_att(ftn,NF90_GLOBAL,"NWM_version_number",trim(get_nwm_version()))
       call nwmCheck(diagFlag,iret,'ERROR: Unable to create NWM_version_number attribute')
 #endif
@@ -3145,7 +3193,7 @@ subroutine output_chrtout_grd_NWM(domainId,iGrid)
       end do
 
       ! Define compression for meta-variables only if io_form_outputs is set to 1.
-      if((nlst_rt(1)%io_form_outputs .eq. 1) .or. (nlst_rt(1)%io_form_outputs .eq. 3)) then
+      if((nlst(1)%io_form_outputs .eq. 1) .or. (nlst(1)%io_form_outputs .eq. 3)) then
          iret = nf90_def_var_deflate(ftn,timeId,0,1,2)
          call nwmCheck(diagFlag,iret,'ERROR: Unable to define compression level for time.')
          iret = nf90_def_var_deflate(ftn,refTimeId,0,1,2)
@@ -3190,7 +3238,7 @@ subroutine output_chrtout_grd_NWM(domainId,iGrid)
          endif
       end do
       ! Define compression for meta-variables only if io_form_outputs is set to 1.
-      if((nlst_rt(1)%io_form_outputs .eq. 1) .or. (nlst_rt(1)%io_form_outputs .eq. 3)) then
+      if((nlst(1)%io_form_outputs .eq. 1) .or. (nlst(1)%io_form_outputs .eq. 3)) then
          iret = nf90_def_var_deflate(ftn,indexVarId,0,1,2)
          call nwmCheck(diagFlag,iret,'ERROR: Unable to define compression level for index.')
       endif
@@ -3199,7 +3247,7 @@ subroutine output_chrtout_grd_NWM(domainId,iGrid)
       ! metadata attributes.
       do iTmp=1,fileMeta%numVars
          if(fileMeta%outFlag(iTmp) .eq. 1) then
-            if((nlst_rt(1)%io_form_outputs .eq. 1) .or. (nlst_rt(1)%io_form_outputs .eq. 2)) then
+            if((nlst(1)%io_form_outputs .eq. 1) .or. (nlst(1)%io_form_outputs .eq. 2)) then
                iret = nf90_def_var(ftn,trim(fileMeta%varNames(iTmp)),nf90_int,(/dimId(2),dimId(3),dimId(1)/),varId)
             else
                iret = nf90_def_var(ftn,trim(fileMeta%varNames(iTmp)),nf90_float,(/dimId(2),dimId(3),dimId(1)/),varId)
@@ -3220,7 +3268,7 @@ subroutine output_chrtout_grd_NWM(domainId,iGrid)
             ! determined that the benefit wasn't worth the extra time spent
             ! writing output.
             ! Only compress if io_form_outputs is set to 1.
-            if((nlst_rt(1)%io_form_outputs .eq. 1) .or. (nlst_rt(1)%io_form_outputs .eq. 3)) then
+            if((nlst(1)%io_form_outputs .eq. 1) .or. (nlst(1)%io_form_outputs .eq. 3)) then
                iret = nf90_def_var_deflate(ftn,varId,0,1,2)
                call nwmCheck(diagFlag,iret,'ERROR: Unable to define compression for: '//trim(fileMeta%varNames(iTmp)))
             endif
@@ -3232,7 +3280,7 @@ subroutine output_chrtout_grd_NWM(domainId,iGrid)
             call nwmCheck(diagFlag,iret,'ERROR: Unable to place units attribute into variable '//trim(fileMeta%varNames(iTmp)))
             iret = nf90_put_att(ftn,varId,'grid_mapping','crs')
             call nwmCheck(diagFlag,iret,'ERROR: Unable to place grid_mapping attribute into variable: '//trim(fileMeta%varNames(iTmp)))
-            if((nlst_rt(1)%io_form_outputs .eq. 1) .or. (nlst_rt(1)%io_form_outputs .eq. 2)) then
+            if((nlst(1)%io_form_outputs .eq. 1) .or. (nlst(1)%io_form_outputs .eq. 2)) then
                iret = nf90_put_att(ftn,varId,'_FillValue',fileMeta%fillComp(iTmp))
                call nwmCheck(diagFlag,iret,'ERROR: Unable to place Fill value attribute into variable '//trim(fileMeta%varNames(iTmp)))
                iret = nf90_put_att(ftn,varId,'missing_value',fileMeta%missingComp(iTmp))
@@ -3270,7 +3318,7 @@ subroutine output_chrtout_grd_NWM(domainId,iGrid)
       allocate(xCoord(RT_DOMAIN(domainId)%g_ixrt))
       allocate(yCoord(RT_DOMAIN(domainId)%g_jxrt))
       allocate(yCoord2(RT_DOMAIN(domainId)%g_jxrt))
-      iret = nf90_open(trim(nlst_rt(domainId)%geo_finegrid_flnm),NF90_NOWRITE,ncid=ftnGeo)
+      iret = nf90_open(trim(nlst(domainId)%geo_finegrid_flnm),NF90_NOWRITE,ncid=ftnGeo)
       call nwmCheck(diagFlag,iret,'ERROR: Unable to open FullDom file')
       iret = nf90_inq_varid(ftnGeo,'x',geoXVarId)
       call nwmCheck(diagFlag,iret,'ERROR: Unable to find x coordinate in FullDom file')
@@ -3336,7 +3384,7 @@ subroutine output_chrtout_grd_NWM(domainId,iGrid)
       ! Place streamflow grid into output file.
       iret = nf90_inq_varid(ftn,'streamflow',varId)
       call nwmCheck(diagFlag,iret,'ERROR: Unable to locate streamflow variable.')
-      if((nlst_rt(1)%io_form_outputs .eq. 1) .or. (nlst_rt(1)%io_form_outputs .eq. 2)) then
+      if((nlst(1)%io_form_outputs .eq. 1) .or. (nlst(1)%io_form_outputs .eq. 2)) then
          iret = nf90_put_var(ftn,varId,tmpFlow,(/1,1,1/),(/RT_DOMAIN(domainId)%g_ixrt,RT_DOMAIN(domainId)%g_jxrt,1/))
       else
          iret = nf90_put_var(ftn,varId,tmpFlowReal,(/1,1,1/),(/RT_DOMAIN(domainId)%g_ixrt,RT_DOMAIN(domainId)%g_jxrt,1/))
@@ -3379,14 +3427,14 @@ end subroutine output_chrtout_grd_NWM
 
 subroutine output_lsmOut_NWM(domainId)
   use module_rt_data, only: rt_domain
-   use module_namelist, only: nlst_rt
-   use Module_Date_utilities_rt, only: geth_newdate, geth_idts
-   use module_NWM_io_dict
-   use netcdf
+  use config_base, only: nlst
+  use Module_Date_utilities_rt, only: geth_newdate, geth_idts
+  use module_NWM_io_dict
+  use netcdf
 #ifdef MPP_LAND
-     use module_mpp_land
+  use module_mpp_land
 #endif
-   implicit none
+  implicit none
 
    ! Subroutine arguments
    integer, intent(in) :: domainId
@@ -3456,7 +3504,7 @@ subroutine output_lsmOut_NWM(domainId)
    endif
 
    ! Some sanity checking here.
-   if(nlst_rt(domainId)%LSMOUT_DOMAIN .eq. 0) then
+   if(nlst(domainId)%LSMOUT_DOMAIN .eq. 0) then
       ! No output requested here. Return to the parent calling program.
       return
    endif
@@ -3470,41 +3518,43 @@ subroutine output_lsmOut_NWM(domainId)
    ! Calculate necessary datetime information that will go into the output file.
    ! First compose strings of EPOCH and simulation start date.
    epochDate = trim("1970-01-01 00:00")
-   startDateTmp = trim(nlst_rt(1)%startdate(1:4)//"-"//&
-                       nlst_rt(1)%startdate(6:7)//&
-                       &"-"//nlst_rt(1)%startdate(9:10)//" "//&
-                       nlst_rt(1)%startdate(12:13)//":"//&
-                       nlst_rt(1)%startdate(15:16))
+   startDateTmp = trim(nlst(1)%startdate(1:4)//"-"//&
+                       nlst(1)%startdate(6:7)//&
+                       &"-"//nlst(1)%startdate(9:10)//" "//&
+                       nlst(1)%startdate(12:13)//":"//&
+                       nlst(1)%startdate(15:16))
    ! Second, utilize NoahMP date utilities to calculate the number of minutes
    ! from EPOCH to the beginning of the model simulation.
    call geth_idts(startDateTmp,epochDate,minSinceEpoch1)
    ! Third, calculate the number of minutes since the beginning of the
    ! simulation.
-   minSinceSim = int(nlst_rt(1)%out_dt*(rt_domain(1)%out_counts-1))
+   minSinceSim = int(nlst(1)%out_dt*(rt_domain(1)%out_counts-1))
    ! Fourth, calculate the total number of minutes from EPOCH to the current
    ! model time step.
    minSinceEpoch = minSinceEpoch1 + minSinceSim
    ! Fifth, compose global attribute time strings that will be used.
-   validTime = trim(nlst_rt(1)%olddate(1:4)//'-'//&
-                    nlst_rt(1)%olddate(6:7)//'-'//&
-                    nlst_rt(1)%olddate(9:10)//'_'//&
-                    nlst_rt(1)%olddate(12:13)//&
-                    &':00:00')
-   initTime = trim(nlst_rt(1)%startdate(1:4)//'-'//&
-                  nlst_rt(1)%startdate(6:7)//'-'//&
-                  nlst_rt(1)%startdate(9:10)//'_'//&
-                  nlst_rt(1)%startdate(12:13)//&
-                  &':00:00')
+   validTime = trim(nlst(1)%olddate(1:4)//'-'//&
+                    nlst(1)%olddate(6:7)//'-'//&
+                    nlst(1)%olddate(9:10)//'_'//&
+                    nlst(1)%olddate(12:13)//':'//&
+                    nlst(1)%olddate(15:16)//&
+                    &':00')
+   initTime = trim(nlst(1)%startdate(1:4)//'-'//&
+                  nlst(1)%startdate(6:7)//'-'//&
+                  nlst(1)%startdate(9:10)//'_'//&
+                  nlst(1)%startdate(12:13)//':'//&
+                  nlst(1)%startdate(15:16)//&
+                  &':00')
    ! Replace default values in the dictionary.
    fileMeta%initTime = trim(initTime)
    fileMeta%validTime = trim(validTime)
 
    ! calculate the minimum and maximum time
-   fileMeta%timeValidMin = minSinceEpoch1 + nlst_rt(1)%out_dt
-   fileMeta%timeValidMax = minSinceEpoch1 + int(nlst_rt(1)%khour * 60/nlst_rt(1)%out_dt) * nlst_rt(1)%out_dt
+   fileMeta%timeValidMin = minSinceEpoch1 + nlst(1)%out_dt
+   fileMeta%timeValidMax = minSinceEpoch1 + int(nlst(1)%khour * 60/nlst(1)%out_dt) * nlst(1)%out_dt
 
    ! calculate total_valid_time
-   fileMeta%totalValidTime = int(nlst_rt(1)%khour * 60 / nlst_rt(1)%out_dt)  ! # number of valid time (#of output files)
+   fileMeta%totalValidTime = int(nlst(1)%khour * 60 / nlst(1)%out_dt)  ! # number of valid time (#of output files)
 
    ! For now, will always default to outputting all available
    ! variables since the nature of this output file is
@@ -3512,7 +3562,7 @@ subroutine output_lsmOut_NWM(domainId)
    fileMeta%outFlag(:) = [1,1,1,1,1,1,1,1,1,1,1,1,1,1]
 
    ! call the GetModelConfigType function
-   modelConfigType = GetModelConfigType(nlst_rt(1)%io_config_outputs)
+   modelConfigType = GetModelConfigType(nlst(1)%io_config_outputs)
 
    ! Sync all processes up.
    if(mppFlag .eq. 1) then
@@ -3523,10 +3573,10 @@ subroutine output_lsmOut_NWM(domainId)
 
    if(myId .eq. 0) then
       ! We are on the I/O node. Create output file.
-      write(output_flnm,'(A12,".LSMOUT_DOMAIN",I1)') nlst_rt(domainId)%olddate(1:4)//&
-            nlst_rt(domainId)%olddate(6:7)//nlst_rt(domainId)%olddate(9:10)//&
-            nlst_rt(domainId)%olddate(12:13)//nlst_rt(domainId)%olddate(15:16),&
-            nlst_rt(domainId)%igrid
+      write(output_flnm,'(A12,".LSMOUT_DOMAIN",I1)') nlst(domainId)%olddate(1:4)//&
+            nlst(domainId)%olddate(6:7)//nlst(domainId)%olddate(9:10)//&
+            nlst(domainId)%olddate(12:13)//nlst(domainId)%olddate(15:16),&
+            nlst(domainId)%igrid
 
       iret = nf90_create(trim(output_flnm),cmode=nf90_hdf5,ncid = ftn)
       call nwmCheck(diagFlag,iret,'ERROR: Unable to create LSMOUT NetCDF file.')
@@ -3544,7 +3594,7 @@ subroutine output_lsmOut_NWM(domainId)
       call nwmCheck(diagFlag,iret,'ERROR: Unable to place CF conventions attribute into LDASOUT file.')
       iret = nf90_put_att(ftn,NF90_GLOBAL,"code_version",trim(get_code_version()))
       call nwmCheck(diagFlag,iret,'ERROR: Unable to create code_version attribute')
-#ifdef NCEP_WCOSS
+#ifdef NWM_META
       iret = nf90_put_att(ftn,NF90_GLOBAL,"NWM_version_number",trim(get_nwm_version()))
       call nwmCheck(diagFlag,iret,'ERROR: Unable to create NWM_version_number attribute')
 #endif
@@ -3615,7 +3665,7 @@ subroutine output_lsmOut_NWM(domainId)
 
       ! Define compression for meta-variables. Only compress if io_form_outputs is set
       ! to 1.
-      if((nlst_rt(1)%io_form_outputs .eq. 1) .or. (nlst_rt(1)%io_form_outputs .eq. 3)) then
+      if((nlst(1)%io_form_outputs .eq. 1) .or. (nlst(1)%io_form_outputs .eq. 3)) then
          iret = nf90_def_var_deflate(ftn,timeId,0,1,2)
          call nwmCheck(diagFlag,iret,'ERROR: Unable to define compression level for time.')
          iret = nf90_def_var_deflate(ftn,refTimeId,0,1,2)
@@ -3657,7 +3707,7 @@ subroutine output_lsmOut_NWM(domainId)
             ! filter off for now. Kelley Eicher did some testing with this and
             ! determined that the benefit wasn't worth the extra time spent writing output.
             ! Only compress if io_form_outputs is set to 1.
-            if((nlst_rt(1)%io_form_outputs .eq. 1) .or. (nlst_rt(1)%io_form_outputs .eq. 3)) then
+            if((nlst(1)%io_form_outputs .eq. 1) .or. (nlst(1)%io_form_outputs .eq. 3)) then
                iret = nf90_def_var_deflate(ftn,varId,0,1,2)
                call nwmCheck(diagFlag,iret,'ERROR: Unable to define compression for: '//trim(fileMeta%varNames(iTmp)))
             endif
@@ -3692,7 +3742,7 @@ subroutine output_lsmOut_NWM(domainId)
       allocate(xCoord(global_nx))
       allocate(yCoord(global_ny))
       allocate(yCoord2(global_ny))
-      iret = nf90_open(trim(nlst_rt(1)%land_spatial_meta_flnm),NF90_NOWRITE,ncid=ftnGeo)
+      iret = nf90_open(trim(nlst(1)%land_spatial_meta_flnm),NF90_NOWRITE,ncid=ftnGeo)
       if(iret .ne. 0) then
          ! Spatial metadata file not found for land grid. Warn the user no
          ! file was found, and set x/y coordinates to -9999.0
@@ -3887,7 +3937,7 @@ end subroutine output_lsmOut_NWM
 ! User controllable options: None.
 subroutine output_frxstPts(domainId)
    use module_rt_data, only: rt_domain
-   use module_namelist, only: nlst_rt
+   use config_base, only: nlst
    use Module_Date_utilities_rt, only: geth_newdate, geth_idts
    use module_NWM_io_dict
 #ifdef MPP_LAND
@@ -3922,7 +3972,7 @@ implicit none
    diagFlag = 0
 #endif
 
-   if(nlst_rt(domainId)%frxst_pts_out .eq. 0) then
+   if(nlst(domainId)%frxst_pts_out .eq. 0) then
       ! No output requested here, return to parent calling program/subroutine.
       return
    endif
@@ -3939,14 +3989,14 @@ implicit none
    endif
 
    ! Calculate datetime information
-   seconds_since = int(nlst_rt(1)%out_dt*60*(rt_domain(1)%out_counts-1))
+   seconds_since = int(nlst(1)%out_dt*60*(rt_domain(1)%out_counts-1))
 
    ! First step is to allocate a global array of index values. This "index"
    ! array will be used to subset after collection has taken place. Also,
    ! the sum of this array will be used to determine the size of the output
    ! arrays.
    if(mppFlag .eq. 1) then
-      if(nlst_rt(domainId)%channel_option .ne. 3) then
+      if(nlst(domainId)%channel_option .ne. 3) then
          gSize = rt_domain(domainId)%gnlinksl
       else
          gSize = rt_domain(domainId)%gnlinks
@@ -4009,7 +4059,7 @@ implicit none
       endif
 
       ! Collect arrays from various processors
-      if(nlst_rt(domainId)%channel_option .eq. 3) then
+      if(nlst(domainId)%channel_option .eq. 3) then
          call write_chanel_int(frxstPtsLocal,rt_domain(domainId)%map_l2g,gSize,rt_domain(domainId)%nlinks,g_STRMFRXSTPTS)
          call write_chanel_real(strFlowLocal,rt_domain(domainId)%map_l2g,gSize,rt_domain(domainId)%nlinks,g_qlink(:,1))
          call write_chanel_real(RT_DOMAIN(domainId)%QLINK(:,2),rt_domain(domainId)%map_l2g,gSize,rt_domain(domainId)%nlinks,g_qlink(:,2))
@@ -4052,11 +4102,11 @@ implicit none
 
    if(myId .eq. 0) then
       ! Set index values to 1 where we have forecast points.
-      if(nlst_rt(domainId)%channel_option .eq. 3) then
+      if(nlst(domainId)%channel_option .eq. 3) then
          where(g_STRMFRXSTPTS .ne. -9999) g_outInd = 1
       endif
 
-      if(nlst_rt(domainId)%channel_option .ne. 3) then
+      if(nlst(domainId)%channel_option .ne. 3) then
          ! Check to see if we have any gages that need to be added for reach-based
          ! routing.
          call checkRouteGages(diagFlag,gSize,g_outInd)
@@ -4098,19 +4148,19 @@ implicit none
 
       ! Loop through forecast points and write output.
       do iTmp=1,numPtsOut
-         if(nlst_rt(domainId)%channel_option .eq. 3) then
+         if(nlst(domainId)%channel_option .eq. 3) then
             ! Instead of a gage ID, we are simply going to output the forecast
             ! point number assigned during the pre-processing.
 117         FORMAT(I8,",",A10,1X,A8,",",I12,",",F10.5,",",F8.5,",",F15.3,",",F18.3,",",F6.3)
-            write(55,117) seconds_since, nlst_rt(domainId)%olddate(1:18),&
-                          nlst_rt(domainId)%olddate(12:19),&
+            write(55,117) seconds_since, nlst(domainId)%olddate(1:18),&
+                          nlst(domainId)%olddate(12:19),&
                           g_STRMFRXSTPTSOut(iTmp),g_chlonOut(iTmp),&
                           g_chlatOut(iTmp),g_qlinkOut(iTmp,1),&
                           g_qlinkOut(iTmp,1)*35.314666711511576,&
                           g_hlinkOut(iTmp)
          else
-            write(55,117) seconds_since, nlst_rt(domainId)%olddate(1:18),&
-                          nlst_rt(domainId)%olddate(12:19),&
+            write(55,117) seconds_since, nlst(domainId)%olddate(1:18),&
+                          nlst(domainId)%olddate(12:19),&
                           g_linkidOut(iTmp),g_chlonOut(iTmp),&
                           g_chlatOut(iTmp),g_qlinkOut(iTmp,1),&
                           g_qlinkOut(iTmp,1)*35.314666711511576,&
@@ -4161,7 +4211,7 @@ end subroutine output_frxstPts
 ! User controllable options: None.
 subroutine output_chanObs_NWM(domainId)
    use module_rt_data, only: rt_domain
-   use module_namelist, only: nlst_rt
+   use config_base, only: nlst
    use Module_Date_utilities_rt, only: geth_newdate, geth_idts
    use module_NWM_io_dict
    use netcdf
@@ -4239,7 +4289,7 @@ subroutine output_chanObs_NWM(domainId)
    diagFlag = 0
 #endif
 
-   if(nlst_rt(domainId)%CHANOBS_DOMAIN .eq. 0) then
+   if(nlst(domainId)%CHANOBS_DOMAIN .eq. 0) then
       ! No output requested here, return to parent calling program/subroutine.
       return
    endif
@@ -4265,47 +4315,49 @@ subroutine output_chanObs_NWM(domainId)
    ! Calculate datetime information.
    ! First compose strings of EPOCH and simulation start date.
    epochDate = trim("1970-01-01 00:00")
-   startDate = trim(nlst_rt(domainId)%startdate(1:4)//"-"//&
-                    nlst_rt(domainId)%startdate(6:7)//&
-                    &"-"//nlst_rt(domainId)%startdate(9:10)//" "//&
-                    nlst_rt(domainId)%startdate(12:13)//":"//&
-                    nlst_rt(domainId)%startdate(15:16))
+   startDate = trim(nlst(domainId)%startdate(1:4)//"-"//&
+                    nlst(domainId)%startdate(6:7)//&
+                    &"-"//nlst(domainId)%startdate(9:10)//" "//&
+                    nlst(domainId)%startdate(12:13)//":"//&
+                    nlst(domainId)%startdate(15:16))
    ! Second, utilize NoahMP date utilities to calculate the number of minutes
    ! from EPOCH to the beginning of the model simulation.
    call geth_idts(startDate,epochDate,minSinceEpoch1)
    ! Third, calculate the number of minutes since the beginning of the
    ! simulation.
-   minSinceSim = int(nlst_rt(1)%out_dt*(rt_domain(1)%out_counts-1))
+   minSinceSim = int(nlst(1)%out_dt*(rt_domain(1)%out_counts-1))
    ! Fourth, calculate the total number of minutes from EPOCH to the current
    ! model time step.
    minSinceEpoch = minSinceEpoch1 + minSinceSim
    ! Fifth, compose global attribute time strings that will be used.
-   validTime = trim(nlst_rt(domainId)%olddate(1:4)//'-'//&
-                    nlst_rt(domainId)%olddate(6:7)//'-'//&
-                    nlst_rt(domainId)%olddate(9:10)//'_'//&
-                    nlst_rt(domainId)%olddate(12:13)//&
-                    &':00:00')
-   initTime = trim(nlst_rt(domainId)%startdate(1:4)//'-'//&
-                  nlst_rt(domainId)%startdate(6:7)//'-'//&
-                  nlst_rt(domainId)%startdate(9:10)//'_'//&
-                  nlst_rt(domainId)%startdate(12:13)//&
-                  &':00:00')
+   validTime = trim(nlst(domainId)%olddate(1:4)//'-'//&
+                    nlst(domainId)%olddate(6:7)//'-'//&
+                    nlst(domainId)%olddate(9:10)//'_'//&
+                    nlst(domainId)%olddate(12:13)//':'//&
+                    nlst(domainId)%olddate(15:16)//&
+                    &':00')
+   initTime = trim(nlst(domainId)%startdate(1:4)//'-'//&
+                  nlst(domainId)%startdate(6:7)//'-'//&
+                  nlst(domainId)%startdate(9:10)//'_'//&
+                  nlst(domainId)%startdate(12:13)//':'//&
+                  nlst(domainId)%startdate(15:16)//&
+                  &':00')
    ! Replace default values in the dictionary.
    fileMeta%initTime = trim(initTime)
    fileMeta%validTime = trim(validTime)
 
    ! calculate the minimum and maximum time
-   fileMeta%timeValidMin = minSinceEpoch1 + nlst_rt(1)%out_dt
-   fileMeta%timeValidMax = minSinceEpoch1 + int(nlst_rt(1)%khour * 60/nlst_rt(1)%out_dt) * nlst_rt(1)%out_dt
+   fileMeta%timeValidMin = minSinceEpoch1 + nlst(1)%out_dt
+   fileMeta%timeValidMax = minSinceEpoch1 + int(nlst(1)%khour * 60/nlst(1)%out_dt) * nlst(1)%out_dt
 
    ! calculate total_valid_time
-   fileMeta%totalValidTime = int(nlst_rt(1)%khour * 60 / nlst_rt(1)%out_dt)  ! # number of valid time (#of output files)
+   fileMeta%totalValidTime = int(nlst(1)%khour * 60 / nlst(1)%out_dt)  ! # number of valid time (#of output files)
 
    ! Compose output file name.
-   write(output_flnm,'(A12,".CHANOBS_DOMAIN",I1)')nlst_rt(domainId)%olddate(1:4)//&
-         nlst_rt(domainId)%olddate(6:7)//nlst_rt(domainId)%olddate(9:10)//&
-         nlst_rt(domainId)%olddate(12:13)//nlst_rt(domainId)%olddate(15:16),&
-         nlst_rt(domainId)%igrid
+   write(output_flnm,'(A12,".CHANOBS_DOMAIN",I1)')nlst(domainId)%olddate(1:4)//&
+         nlst(domainId)%olddate(6:7)//nlst(domainId)%olddate(9:10)//&
+         nlst(domainId)%olddate(12:13)//nlst(domainId)%olddate(15:16),&
+         nlst(domainId)%igrid
 
 
    ! First step is to allocate a global array of index values. This "index"
@@ -4313,7 +4365,7 @@ subroutine output_chanObs_NWM(domainId)
    ! the sum of this array will be used to determine the size of the output
    ! arrays.
    if(mppFlag .eq. 1) then
-      if(nlst_rt(domainId)%channel_option .ne. 3) then
+      if(nlst(domainId)%channel_option .ne. 3) then
          gSize = rt_domain(domainId)%gnlinksl
       else
          gSize = rt_domain(domainId)%gnlinks
@@ -4380,7 +4432,7 @@ subroutine output_chanObs_NWM(domainId)
       endif
 
       ! Collect arrays from various processors
-      if(nlst_rt(domainId)%channel_option .eq. 3) then
+      if(nlst(domainId)%channel_option .eq. 3) then
          call write_chanel_int(frxstPtsLocal,rt_domain(domainId)%map_l2g,gSize,rt_domain(domainId)%nlinks,g_STRMFRXSTPTS)
          call write_chanel_real(strFlowLocal,rt_domain(domainId)%map_l2g,gSize,rt_domain(domainId)%nlinks,g_qlink(:,1))
          call write_chanel_real(RT_DOMAIN(domainId)%QLINK(:,2),rt_domain(domainId)%map_l2g,gSize,rt_domain(domainId)%nlinks,g_qlink(:,2))
@@ -4433,11 +4485,11 @@ subroutine output_chanObs_NWM(domainId)
 
    if(myId .eq. 0) then
       ! Set index values to 1 where we have forecast points.
-      if(nlst_rt(domainId)%channel_option .eq. 3) then
+      if(nlst(domainId)%channel_option .eq. 3) then
          where(g_STRMFRXSTPTS .ne. -9999) g_outInd = 1
       endif
 
-      if(nlst_rt(domainId)%channel_option .ne. 3) then
+      if(nlst(domainId)%channel_option .ne. 3) then
          ! Check to see if we have any gages that need to be added for
          ! reach-based
          ! routing.
@@ -4488,7 +4540,7 @@ subroutine output_chanObs_NWM(domainId)
       where ( varOutReal == fileMeta%modelNdv ) varOutReal = -9999.0
 
      ! call the GetModelConfigType function
-     modelConfigType = GetModelConfigType(nlst_rt(1)%io_config_outputs)
+     modelConfigType = GetModelConfigType(nlst(1)%io_config_outputs)
 
       ! Create NetCDF for output.
       iret = nf90_create(trim(output_flnm),cmode=nf90_hdf5,ncid = ftn)
@@ -4517,7 +4569,7 @@ subroutine output_chanObs_NWM(domainId)
       call nwmCheck(diagFlag,iret,'ERROR: Unable to create conventions attribute')
       iret = nf90_put_att(ftn,NF90_GLOBAL,"code_version",trim(get_code_version()))
       call nwmCheck(diagFlag,iret,'ERROR: Unable to create code_version attribute')
-#ifdef NCEP_WCOSS
+#ifdef NWM_META
       iret = nf90_put_att(ftn,NF90_GLOBAL,"NWM_version_number",trim(get_nwm_version()))
       call nwmCheck(diagFlag,iret,'ERROR: Unable to create NWM_version_number attribute')
 #endif
@@ -4528,13 +4580,13 @@ subroutine output_chanObs_NWM(domainId)
 
       ! Create global attributes specific to running output through the
       ! channel-only configuration of the model.
-      iret = nf90_put_att(ftn,NF90_GLOBAL,"dev_OVRTSWCRT",nlst_rt(domainId)%OVRTSWCRT)
+      iret = nf90_put_att(ftn,NF90_GLOBAL,"dev_OVRTSWCRT",nlst(domainId)%OVRTSWCRT)
       call nwmCheck(diagFlag,iret,'ERROR: Unable to create dev_OVRTSWCRT attribute')
-      iret = nf90_put_att(ftn,NF90_GLOBAL,"dev_NOAH_TIMESTEP",int(nlst_rt(domainId)%dt))
+      iret = nf90_put_att(ftn,NF90_GLOBAL,"dev_NOAH_TIMESTEP",int(nlst(domainId)%dt))
       call nwmCheck(diagFlag,iret,'ERROR: Unable to create dev_NOAH_TIMESTEP attribute')
-      iret = nf90_put_att(ftn,NF90_GLOBAL,"dev_channel_only",nlst_rt(domainId)%channel_only)
+      iret = nf90_put_att(ftn,NF90_GLOBAL,"dev_channel_only",nlst(domainId)%channel_only)
       call nwmCheck(diagFlag,iret,'ERROR: Unable to create dev_channel_only attribute')
-      iret = nf90_put_att(ftn,NF90_GLOBAL,"dev_channelBucket_only",nlst_rt(domainId)%channelBucket_only)
+      iret = nf90_put_att(ftn,NF90_GLOBAL,"dev_channelBucket_only",nlst(domainId)%channelBucket_only)
       call nwmCheck(diagFlag,iret,'ERROR: Unable to create dev_channelBucket_only attribute')
       iret = nf90_put_att(ftn,NF90_GLOBAL,'dev','dev_ prefix indicates development/internal meta data')
       call nwmCheck(diagFlag,iret,'ERROR: Unable to create dev attribute')
@@ -4606,7 +4658,7 @@ subroutine output_chanObs_NWM(domainId)
       call nwmCheck(diagFlag,iret,'ERROR: Unable to create feature_id variable.')
       ! Specify these attributes based on channel routing methods specified by
       ! user.
-      if(nlst_rt(domainId)%channel_option .eq. 3) then
+      if(nlst(domainId)%channel_option .eq. 3) then
          iret = nf90_put_att(ftn,featureVarId,'long_name','User Specified Forecast Points')
          call nwmCheck(diagFlag,iret,'ERROR: Uanble to place long_name attribute into feature_id variable')
          iret = nf90_put_att(ftn,featureVarId,'comment','Forecast Points Specified in Fulldom file')
@@ -4657,7 +4709,7 @@ subroutine output_chanObs_NWM(domainId)
       ! Define deflation levels for these meta-variables. For now, we are going
       ! to
       ! default to a compression level of 2. Only compress if io_form_outputs is set to 1.
-      if((nlst_rt(1)%io_form_outputs .eq. 1) .or. (nlst_rt(1)%io_form_outputs .eq. 3)) then
+      if((nlst(1)%io_form_outputs .eq. 1) .or. (nlst(1)%io_form_outputs .eq. 3)) then
          iret = nf90_def_var_deflate(ftn,timeId,0,1,2)
          call nwmCheck(diagFlag,iret,'ERROR: Unable to define compression level for time.')
          iret = nf90_def_var_deflate(ftn,featureVarId,0,1,2)
@@ -4683,7 +4735,7 @@ subroutine output_chanObs_NWM(domainId)
       do iTmp=1,fileMeta%numVars
          if(fileMeta%outFlag(iTmp) .eq. 1) then
             ! First create variable
-            if((nlst_rt(1)%io_form_outputs .eq. 1) .or. (nlst_rt(1)%io_form_outputs .eq. 2)) then
+            if((nlst(1)%io_form_outputs .eq. 1) .or. (nlst(1)%io_form_outputs .eq. 2)) then
                iret = nf90_def_var(ftn,trim(fileMeta%varNames(iTmp)),nf90_int,dimId(1),varId)
             else
                iret = nf90_def_var(ftn,trim(fileMeta%varNames(iTmp)),nf90_float,dimId(1),varId)
@@ -4704,7 +4756,7 @@ subroutine output_chanObs_NWM(domainId)
             ! determined that the benefit wasn't worth the extra time spent
             ! writing
             ! output. Only compress if io_form_outputs is set to 1.
-            if((nlst_rt(1)%io_form_outputs .eq. 1) .or. (nlst_rt(1)%io_form_outputs .eq. 3)) then
+            if((nlst(1)%io_form_outputs .eq. 1) .or. (nlst(1)%io_form_outputs .eq. 3)) then
                iret = nf90_def_var_deflate(ftn,varId,0,1,2)
                call nwmCheck(diagFlag,iret,'ERROR: Unable to define compression for: '//trim(fileMeta%varNames(iTmp)))
             endif
@@ -4718,7 +4770,7 @@ subroutine output_chanObs_NWM(domainId)
             call nwmCheck(diagFlag,iret,'ERROR: Unable to place coordinates attribute into variable '//trim(fileMeta%varNames(iTmp)))
             iret = nf90_put_att(ftn,varId,'grid_mapping','crs')
             call nwmCheck(diagFlag,iret,'ERROR: Unable to place grid_mapping attribute into variable '//trim(fileMeta%varNames(iTmp)))
-            if((nlst_rt(1)%io_form_outputs .eq. 1) .or. (nlst_rt(1)%io_form_outputs .eq. 2)) then
+            if((nlst(1)%io_form_outputs .eq. 1) .or. (nlst(1)%io_form_outputs .eq. 2)) then
                iret = nf90_put_att(ftn,varId,'_FillValue',fileMeta%fillComp(iTmp))
                call nwmCheck(diagFlag,iret,'ERROR: Unable to place Fill value attribute into variable '//trim(fileMeta%varNames(iTmp)))
                iret = nf90_put_att(ftn,varId,'missing_value',fileMeta%missingComp(iTmp))
@@ -4764,7 +4816,7 @@ subroutine output_chanObs_NWM(domainId)
             call nwmCheck(diagFlag,iret,'ERROR: Unable to find variable ID for var: '//trim(fileMeta%varNames(iTmp)))
 
             ! Put data into NetCDF file
-            if((nlst_rt(1)%io_form_outputs .eq. 1) .or. (nlst_rt(1)%io_form_outputs .eq. 2)) then
+            if((nlst(1)%io_form_outputs .eq. 1) .or. (nlst(1)%io_form_outputs .eq. 2)) then
                iret = nf90_put_var(ftn,varId,varOutInt)
             else
                iret = nf90_put_var(ftn,varId,varOutReal(iTmp,:))
@@ -4778,7 +4830,7 @@ subroutine output_chanObs_NWM(domainId)
       call nwmCheck(diagFlag,iret,'ERROR: Unable to locate feature_id in NetCDF file.')
       ! If we are running gridded routing, output the user-specified forecast
       ! point numbers. Otherwise, output the reach ID values.
-      if(nlst_rt(domainId)%channel_option .eq. 3) then
+      if(nlst(domainId)%channel_option .eq. 3) then
          iret = nf90_put_var(ftn,varId,g_STRMFRXSTPTSOut)
          call nwmCheck(diagFlag,iret,'ERROR: Unable to place data into feature_id output variable.')
       else
@@ -4870,7 +4922,7 @@ end subroutine output_chanObs_NWM
 ! User controllable options: None.
 subroutine output_gw_NWM(domainId,iGrid)
    use module_rt_data, only: rt_domain
-   use module_namelist, only: nlst_rt
+   use config_base, only: nlst
    use Module_Date_utilities_rt, only: geth_newdate, geth_idts
    use module_NWM_io_dict
    use netcdf
@@ -4911,7 +4963,7 @@ subroutine output_gw_NWM(domainId,iGrid)
    integer :: indVarId,indTmp ! For the feature_id sorting process.
    integer :: ierr, myId ! MPI return status, process ID
    integer :: gnbasns
-   ! Allocatable arrays to hold output variables. 
+   ! Allocatable arrays to hold output variables.
    real, allocatable, dimension(:) :: g_qin_gwsubbas,g_qout_gwsubbas,g_qloss_gwsubbas,g_z_gwsubbas
    integer, allocatable, dimension(:) :: g_basnsInd
    real, allocatable, dimension(:,:) :: varOutReal   ! Array holding output variables in real format
@@ -4945,7 +4997,7 @@ subroutine output_gw_NWM(domainId,iGrid)
    endif
 
    ! Some sanity checking here.
-   if(nlst_rt(domainId)%output_gw .eq. 0) then
+   if(nlst(domainId)%output_gw .eq. 0) then
       ! No output requested here. Return to the parent calling program.
       return
    endif
@@ -4954,33 +5006,33 @@ subroutine output_gw_NWM(domainId,iGrid)
    ! for the output file.
    call initGwDict(fileMeta)
 
-   if(nlst_rt(1)%io_config_outputs .eq. 0) then
+   if(nlst(1)%io_config_outputs .eq. 0) then
       ! All
-      fileMeta%outFlag(:) = [1,1,0,1] 
-   else if(nlst_rt(1)%io_config_outputs .eq. 1) then
+      fileMeta%outFlag(:) = [1,1,0,1]
+   else if(nlst(1)%io_config_outputs .eq. 1) then
       ! Analysis and Assimilation
       fileMeta%outFlag(:) = [1,1,0,1]
-   else if(nlst_rt(1)%io_config_outputs .eq. 2) then
+   else if(nlst(1)%io_config_outputs .eq. 2) then
       ! Short Range
       fileMeta%outFlag(:) = [1,1,0,1]
-   else if(nlst_rt(1)%io_config_outputs .eq. 3) then
+   else if(nlst(1)%io_config_outputs .eq. 3) then
       ! Medium Range
       fileMeta%outFlag(:) = [1,1,0,1]
-   else if(nlst_rt(1)%io_config_outputs .eq. 4) then
+   else if(nlst(1)%io_config_outputs .eq. 4) then
       ! Long Range
       fileMeta%outFlag(:) = [1,1,0,1]
-   else if(nlst_rt(1)%io_config_outputs .eq. 5) then
+   else if(nlst(1)%io_config_outputs .eq. 5) then
       ! Retrospective
       fileMeta%outFlag(:) = [1,1,0,1]
-   else if(nlst_rt(1)%io_config_outputs .eq. 6) then
-      ! Diagnostics 
+   else if(nlst(1)%io_config_outputs .eq. 6) then
+      ! Diagnostics
       fileMeta%outFlag(:) = [1,1,0,1]
    else
       call nwmCheck(diagFlag,1,'ERROR: Invalid IOC flag provided by namelist file.')
    endif
 
    ! call the GetModelConfigType function
-   modelConfigType = GetModelConfigType(nlst_rt(1)%io_config_outputs)
+   modelConfigType = GetModelConfigType(nlst(1)%io_config_outputs)
 
    gnbasns = rt_domain(domainId)%gnumbasns
    gSize = gnbasns
@@ -5009,17 +5061,17 @@ subroutine output_gw_NWM(domainId,iGrid)
          allocate(g_basnsInd(1))
       endif
 
-      if(nlst_rt(domainId)%UDMP_OPT .eq. 1) then
+      if(nlst(domainId)%UDMP_OPT .eq. 1) then
          ! This is ONLY for NWM configuration with NHD channel routing. NCAR
-         ! reach-based routing has the GW physics initialized the same as with 
-         ! gridded routing. 
+         ! reach-based routing has the GW physics initialized the same as with
+         ! gridded routing.
          !ADCHANGE: Note units conversion from m3 to m3/s for UPDMP=1 only
-         call ReachLS_write_io(rt_domain(domainId)%qin_gwsubbas/nlst_rt(domainId)%DT,g_qin_gwsubbas)
+         call ReachLS_write_io(rt_domain(domainId)%qin_gwsubbas/nlst(domainId)%DT,g_qin_gwsubbas)
          call ReachLS_write_io(rt_domain(domainId)%qout_gwsubbas,g_qout_gwsubbas)
          !ADCHANGE: Note units conversion from m to mm for UPDMP=1 only
          call ReachLS_write_io(rt_domain(domainId)%z_gwsubbas*1000.,g_z_gwsubbas)
          call ReachLS_write_io(rt_domain(domainId)%linkid,g_basnsInd)
-         if(nlst_rt(domainId)%bucket_loss .eq. 1) then
+         if(nlst(domainId)%bucket_loss .eq. 1) then
             fileMeta%outFlag(3) = 1
             call ReachLS_write_io(rt_domain(domainId)%qloss_gwsubbas,g_qloss_gwsubbas)
          endif
@@ -5032,7 +5084,7 @@ subroutine output_gw_NWM(domainId,iGrid)
                                rt_domain(domainId)%basnsInd,g_z_gwsubbas)
          call gw_write_io_int(rt_domain(domainId)%numbasns,rt_domain(domainId)%basnsInd, &
                               rt_domain(domainId)%basnsInd,g_basnsInd)
-         if(nlst_rt(domainId)%bucket_loss .eq. 1) then
+         if(nlst(domainId)%bucket_loss .eq. 1) then
              fileMeta%outFlag(3) = 1
              call gw_write_io_real(rt_domain(domainId)%numbasns,rt_domain(domainId)%qloss_gwsubbas, &
                                    rt_domain(domainId)%basnsInd,g_qloss_gwsubbas)
@@ -5047,17 +5099,17 @@ subroutine output_gw_NWM(domainId,iGrid)
       allocate(g_basnsInd(rt_domain(domainId)%gnumbasns))
 
       !ADCHANGE: Note units conversion from m3 to m3/s for UPDMP=1 only
-      g_qin_gwsubbas = rt_domain(domainId)%qin_gwsubbas/nlst_rt(domainId)%DT
+      g_qin_gwsubbas = rt_domain(domainId)%qin_gwsubbas/nlst(domainId)%DT
       g_qout_gwsubbas = rt_domain(domainId)%qout_gwsubbas
       g_z_gwsubbas = rt_domain(domainId)%z_gwsubbas
       !ADCHANGE: Note units conversion from m to mm for UPDMP=1 only
-      if(nlst_rt(domainId)%UDMP_OPT .eq. 1) g_z_gwsubbas = g_z_gwsubbas * 1000.
+      if(nlst(domainId)%UDMP_OPT .eq. 1) g_z_gwsubbas = g_z_gwsubbas * 1000.
       g_basnsInd = rt_domain(domainId)%linkid
-      if(nlst_rt(domainId)%bucket_loss .eq. 1) then
+      if(nlst(domainId)%bucket_loss .eq. 1) then
          fileMeta%outFlag(3) = 1
          g_qloss_gwsubbas = rt_domain(domainId)%qloss_gwsubbas
       endif
-   endif   
+   endif
 
    ! Sync all processes up.
    if(mppFlag .eq. 1) then
@@ -5069,46 +5121,48 @@ subroutine output_gw_NWM(domainId,iGrid)
    ! Calculate datetime information.
    ! First compose strings of EPOCH and simulation start date.
    epochDate = trim("1970-01-01 00:00")
-   startDate = trim(nlst_rt(domainId)%startdate(1:4)//"-"//&
-                    nlst_rt(domainId)%startdate(6:7)//&
-                    &"-"//nlst_rt(domainId)%startdate(9:10)//" "//&
-                    nlst_rt(domainId)%startdate(12:13)//":"//&
-                    nlst_rt(domainId)%startdate(15:16))
+   startDate = trim(nlst(domainId)%startdate(1:4)//"-"//&
+                    nlst(domainId)%startdate(6:7)//&
+                    &"-"//nlst(domainId)%startdate(9:10)//" "//&
+                    nlst(domainId)%startdate(12:13)//":"//&
+                    nlst(domainId)%startdate(15:16))
    ! Second, utilize NoahMP date utilities to calculate the number of minutes
    ! from EPOCH to the beginning of the model simulation.
    call geth_idts(startDate,epochDate,minSinceEpoch1)
    ! Third, calculate the number of minutes since the beginning of the
    ! simulation.
-   minSinceSim = int(nlst_rt(1)%out_dt*(rt_domain(1)%out_counts-1))
+   minSinceSim = int(nlst(1)%out_dt*(rt_domain(1)%out_counts-1))
    ! Fourth, calculate the total number of minutes from EPOCH to the current
    ! model time step.
    minSinceEpoch = minSinceEpoch1 + minSinceSim
    ! Fifth, compose global attribute time strings that will be used.
-   validTime = trim(nlst_rt(domainId)%olddate(1:4)//'-'//&
-                    nlst_rt(domainId)%olddate(6:7)//'-'//&
-                    nlst_rt(domainId)%olddate(9:10)//'_'//&
-                    nlst_rt(domainId)%olddate(12:13)//&
-                    &':00:00')
-   initTime = trim(nlst_rt(domainId)%startdate(1:4)//'-'//&
-                  nlst_rt(domainId)%startdate(6:7)//'-'//&
-                  nlst_rt(domainId)%startdate(9:10)//'_'//&
-                  nlst_rt(domainId)%startdate(12:13)//&
-                  &':00:00')
+   validTime = trim(nlst(domainId)%olddate(1:4)//'-'//&
+                    nlst(domainId)%olddate(6:7)//'-'//&
+                    nlst(domainId)%olddate(9:10)//'_'//&
+                    nlst(domainId)%olddate(12:13)//':'//&
+                    nlst(domainId)%olddate(15:16)//&
+                    &':00')
+   initTime = trim(nlst(domainId)%startdate(1:4)//'-'//&
+                  nlst(domainId)%startdate(6:7)//'-'//&
+                  nlst(domainId)%startdate(9:10)//'_'//&
+                  nlst(domainId)%startdate(12:13)//':'//&
+                  nlst(domainId)%startdate(15:16)//&
+                  &':00')
    ! Replace default values in the dictionary.
    fileMeta%initTime = trim(initTime)
    fileMeta%validTime = trim(validTime)
 
    ! calculate the minimum and maximum time
-   fileMeta%timeValidMin = minSinceEpoch1 + nlst_rt(1)%out_dt
-   fileMeta%timeValidMax = minSinceEpoch1 + int(nlst_rt(1)%khour * 60/nlst_rt(1)%out_dt) * nlst_rt(1)%out_dt
+   fileMeta%timeValidMin = minSinceEpoch1 + nlst(1)%out_dt
+   fileMeta%timeValidMax = minSinceEpoch1 + int(nlst(1)%khour * 60/nlst(1)%out_dt) * nlst(1)%out_dt
 
    ! calculate total_valid_time
-   fileMeta%totalValidTime = int(nlst_rt(1)%khour * 60 / nlst_rt(1)%out_dt)  ! # number of valid time (#of output files)
+   fileMeta%totalValidTime = int(nlst(1)%khour * 60 / nlst(1)%out_dt)  ! # number of valid time (#of output files)
 
    ! Compose output file name.
-   write(output_flnm,'(A12,".GWOUT_DOMAIN",I1)')nlst_rt(domainId)%olddate(1:4)//&
-         nlst_rt(domainId)%olddate(6:7)//nlst_rt(domainId)%olddate(9:10)//&
-         nlst_rt(domainId)%olddate(12:13)//nlst_rt(domainId)%olddate(15:16),nlst_rt(domainId)%igrid
+   write(output_flnm,'(A12,".GWOUT_DOMAIN",I1)')nlst(domainId)%olddate(1:4)//&
+         nlst(domainId)%olddate(6:7)//nlst(domainId)%olddate(9:10)//&
+         nlst(domainId)%olddate(12:13)//nlst(domainId)%olddate(15:16),nlst(domainId)%igrid
 
    ! Only run NetCDF library calls to output data if we are on the master
    ! processor.
@@ -5148,7 +5202,7 @@ subroutine output_gw_NWM(domainId,iGrid)
       call nwmCheck(diagFlag,iret,'ERROR: Unable to create conventions attribute')
       iret = nf90_put_att(ftn,NF90_GLOBAL,"code_version",trim(get_code_version()))
       call nwmCheck(diagFlag,iret,'ERROR: Unable to create code_version attribute')
-#ifdef NCEP_WCOSS
+#ifdef NWM_META
       iret = nf90_put_att(ftn,NF90_GLOBAL,"NWM_version_number",trim(get_nwm_version()))
       call nwmCheck(diagFlag,iret,'ERROR: Unable to create NWM_version_number attribute')
 #endif
@@ -5200,7 +5254,7 @@ subroutine output_gw_NWM(domainId,iGrid)
       ! Define deflation levels for these meta-variables. For now, we are going
       ! to
       ! default to a compression level of 2. Only compress if io_form_outputs is set to 1.
-      if((nlst_rt(1)%io_form_outputs .eq. 1) .or. (nlst_rt(1)%io_form_outputs .eq. 3)) then
+      if((nlst(1)%io_form_outputs .eq. 1) .or. (nlst(1)%io_form_outputs .eq. 3)) then
          iret = nf90_def_var_deflate(ftn,timeId,0,1,2)
          call nwmCheck(diagFlag,iret,'ERROR: Unable to define compression level for time.')
          iret = nf90_def_var_deflate(ftn,featureVarId,0,1,2)
@@ -5219,7 +5273,7 @@ subroutine output_gw_NWM(domainId,iGrid)
       do iTmp=1,fileMeta%numVars
          if(fileMeta%outFlag(iTmp) .eq. 1) then
             ! First create variable
-            if((nlst_rt(1)%io_form_outputs .eq. 1) .or. (nlst_rt(1)%io_form_outputs .eq. 2)) then
+            if((nlst(1)%io_form_outputs .eq. 1) .or. (nlst(1)%io_form_outputs .eq. 2)) then
                iret = nf90_def_var(ftn,trim(fileMeta%varNames(iTmp)),nf90_int,dimId(1),varId)
             else
                iret = nf90_def_var(ftn,trim(fileMeta%varNames(iTmp)),nf90_float,dimId(1),varId)
@@ -5237,7 +5291,7 @@ subroutine output_gw_NWM(domainId,iGrid)
             ! filter off for now. Kelley Eicher did some testing with this and
             ! determined that the benefit wasn't worth the extra time spent writing output.
             ! Only compress if io_form_outputs is set to 1.
-            if((nlst_rt(1)%io_form_outputs .eq. 1) .or. (nlst_rt(1)%io_form_outputs .eq. 3)) then
+            if((nlst(1)%io_form_outputs .eq. 1) .or. (nlst(1)%io_form_outputs .eq. 3)) then
                iret = nf90_def_var_deflate(ftn,varId,0,1,2)
                call nwmCheck(diagFlag,iret,'ERROR: Unable to define compression for: '//trim(fileMeta%varNames(iTmp)))
             endif
@@ -5247,7 +5301,7 @@ subroutine output_gw_NWM(domainId,iGrid)
             call nwmCheck(diagFlag,iret,'ERROR: Unable to place long_name attribute into variable '//trim(fileMeta%varNames(iTmp)))
             iret = nf90_put_att(ftn,varId,'units',trim(fileMeta%units(iTmp)))
             call nwmCheck(diagFlag,iret,'ERROR: Unable to place units attribute into variable '//trim(fileMeta%varNames(iTmp)))
-            if((nlst_rt(1)%io_form_outputs .eq. 1) .or. (nlst_rt(1)%io_form_outputs .eq. 2)) then
+            if((nlst(1)%io_form_outputs .eq. 1) .or. (nlst(1)%io_form_outputs .eq. 2)) then
                iret = nf90_put_att(ftn,varId,'_FillValue',fileMeta%fillComp(iTmp))
                call nwmCheck(diagFlag,iret,'ERROR: Unable to place Fill value attribute into variable '//trim(fileMeta%varNames(iTmp)))
                iret = nf90_put_att(ftn,varId,'missing_value',fileMeta%missingComp(iTmp))
@@ -5291,7 +5345,7 @@ subroutine output_gw_NWM(domainId,iGrid)
             call nwmCheck(diagFlag,iret,'ERROR: Unable to find variable ID for var: '//trim(fileMeta%varNames(iTmp)))
 
             ! Put data into NetCDF file
-            if((nlst_rt(1)%io_form_outputs .eq. 1) .or. (nlst_rt(1)%io_form_outputs .eq. 2)) then
+            if((nlst(1)%io_form_outputs .eq. 1) .or. (nlst(1)%io_form_outputs .eq. 2)) then
                iret = nf90_put_var(ftn,varId,varOutInt)
             else
                iret = nf90_put_var(ftn,varId,varOutReal(iTmp,:))
@@ -5370,10 +5424,10 @@ subroutine nwmCheck(diagFlag,iret,msg)
 end subroutine nwmCheck
 
 subroutine checkRouteGages(diagFlag,nElements,indexArray)
-   use module_namelist, only : nlst_rt
-   use netcdf
-   use module_HYDRO_io, only : get_1d_netcdf_text
-   implicit none
+  use config_base, only: nlst
+  use netcdf
+  use module_HYDRO_io, only : get_1d_netcdf_text
+  implicit none
 
    ! Subroutine arguments.
    integer, intent(in) :: diagFlag
@@ -5387,7 +5441,7 @@ subroutine checkRouteGages(diagFlag,nElements,indexArray)
    ! This subroutine will check for a Routelink file, then check for a "gages"
    ! variable. If any gages are found, the indexArray is updated and passed back
    ! to the calling subroutine.
-   iret = nf90_open(trim(nlst_rt(1)%route_link_f),NF90_NOWRITE,ncid=ftnRt)
+   iret = nf90_open(trim(nlst(1)%route_link_f),NF90_NOWRITE,ncid=ftnRt)
    if(iret .ne. 0) then
       call postDiagMsg(diagFlag,'WARNING: Did not find Routelink file for gage location in output routines.')
       ! No Routelink file found. Simply return to the parent calling subroutine.

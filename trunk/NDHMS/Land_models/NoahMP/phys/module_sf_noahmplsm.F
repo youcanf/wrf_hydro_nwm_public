@@ -156,6 +156,15 @@ MODULE MODULE_SF_NOAHMPLSM
                       !   3 -> adjusted Sellers to decrease RSURF for wet soil
 		      !   4 -> option 1 for non-snow; rsurf = rsurf_snow for snow (set in MPTABLE); AD v3.8
 
+  INTEGER :: OPT_SOIL ! options for defining soil properties
+                      ! **1 -> use input dominant soil texture
+		      !   2 -> use input soil texture that varies with depth
+                      !   3 -> use soil composition (sand, clay, orgm) and pedotransfer functions (OPT_PEDO)
+		      !   4 -> use input soil properties (BEXP_3D, SMCMAX_3D, etc.)
+
+  INTEGER :: OPT_PEDO ! options for pedotransfer functions (used when OPT_SOIL = 3)
+                      ! **1 -> Saxton and Rawls (2006)
+
   INTEGER :: OPT_CROP ! options for crop model
                       ! **0 -> No crop model, will run default dynamic vegetation
                       !   1 -> Liu, et al. 2016
@@ -279,6 +288,7 @@ MODULE MODULE_SF_NOAHMPLSM
      REAL :: FSATMX       !maximum surface saturated fraction (global mean)
      REAL :: Z0SNO        !snow surface roughness length (m) (0.002)
      REAL :: SSI          !liquid water holding capacity for snowpack (m3/m3)
+     REAL :: SNOW_RET_FAC !snowpack water release timescale factor (1/s)
      REAL :: SWEMX        !new snow mass to fully cover old snow (mm)
      REAL :: TAU0         !tau0 from Yang97 eqn. 10a
      REAL :: GRAIN_GROWTH !growth from vapor diffusion Yang97 eqn. 10b
@@ -381,7 +391,7 @@ contains
                    TBOT    , CO2AIR  , O2AIR   , FOLN    , FICEOLD , ZLVL    , & ! IN : Forcing
                    ALBOLD  , SNEQVO  ,                                         & ! IN/OUT : 
                    STC     , SH2O    , SMC     , TAH     , EAH     , FWET    , & ! IN/OUT : 
-                   CANLIQ  , CANICE  , TV      , TG      , QSFC    , QSNOW   , & ! IN/OUT : 
+                   CANLIQ  , CANICE  , TV      , TG      , QSFC, QSNOW, QRAIN, & ! IN/OUT : 
                    ISNOW   , ZSNSO   , SNOWH   , SNEQV   , SNICE   , SNLIQ   , & ! IN/OUT : 
                    ZWT     , WA      , WT      , WSLAKE  , LFMASS  , RTMASS  , & ! IN/OUT : 
                    STMASS  , WOOD    , STBLCP  , FASTCP  , LAI     , SAI     , & ! IN/OUT : 
@@ -464,6 +474,7 @@ contains
 
 ! input/output : need arbitary intial values
   REAL                           , INTENT(INOUT) :: QSNOW  !snowfall [mm/s]
+  REAL                           , INTENT(INOUT) :: QRAIN  !rainfall [mm/s]
   REAL                           , INTENT(INOUT) :: FWET   !wetted or snowed fraction of canopy (-)
   REAL                           , INTENT(INOUT) :: SNEQVO !snow mass at last time step (mm)
   REAL                           , INTENT(INOUT) :: EAH    !canopy air vapor pressure (pa)
@@ -650,7 +661,6 @@ contains
   REAL                                           :: QINTS   !interception (loading) rate for snowfall (mm/s)
   REAL                                           :: QDRIPS  !drip (unloading) rate for intercepted snow (mm/s)
   REAL                                           :: QTHROS  !throughfall of snowfall (mm/s)
-  REAL                                           :: QRAIN   !rain at ground srf (mm/s) [+]
   REAL                                           :: SNOWHIN !snow depth increasing rate (m/s)
   REAL                                 :: LATHEAV !latent heat vap./sublimation (j/kg)
   REAL                                 :: LATHEAG !latent heat vap./sublimation (j/kg)
@@ -838,7 +848,7 @@ contains
 ! urban - jref
     QFX = ETRAN + ECAN + EDIR
     IF ( parameters%urban_flag ) THEN
-       QSFC = (QFX/RHOAIR*CH) + QAIR
+       QSFC = QFX/(RHOAIR*CH) + QAIR
        Q2B = QSFC
     END IF
 
@@ -1836,6 +1846,15 @@ ENDIF   ! CROPTYPE == 0
         ZPD  = ZPDG
      END IF
 
+! special case for urban
+
+     IF (parameters%urban_flag) THEN
+       Z0MG = parameters%Z0MVT
+       ZPDG  = 0.65 * parameters%HVT
+       Z0M  = Z0MG
+       ZPD  = ZPDG
+     END IF
+
      ZLVL = MAX(ZPD,parameters%HVT) + ZREF
      IF(ZPDG >= ZLVL) ZLVL = ZPDG + ZREF
 !     UR   = UR*LOG(ZLVL/Z0M)/LOG(10./Z0M)       !input UR is at 10m
@@ -2353,7 +2372,8 @@ ENDIF   ! CROPTYPE == 0
     THKS = (THKQTZ ** parameters%QUARTZ(ISOIL))* (THKO ** (1. - parameters%QUARTZ(ISOIL)))
 
 ! UNFROZEN VOLUME FOR SATURATION (POROSITY*XUNFROZ)
-    XUNFROZ = SH2O / SMC
+    XUNFROZ = 1.0                       ! Prevent divide by zero (suggested by D. Mocko)
+    IF(SMC > 0.) XUNFROZ = SH2O / SMC
 ! SATURATED THERMAL CONDUCTIVITY
     XU = XUNFROZ * parameters%SMCMAX(ISOIL)
 
@@ -3546,6 +3566,7 @@ ENDIF   ! CROPTYPE == 0
         MOZ    = 0.
         MOZSGN = 0
         MOZOLD = 0.
+        FH2    = 0.
         HG     = 0.
         H      = 0.
         QFX    = 0.
@@ -3998,6 +4019,7 @@ ENDIF   ! CROPTYPE == 0
         MOZ    = 0.
         MOZSGN = 0
         MOZOLD = 0.
+        FH2    = 0.
         H      = 0.
         QFX    = 0.
         FV     = 0.1
@@ -4232,6 +4254,7 @@ ENDIF   ! CROPTYPE == 0
 
        TMPRB  = CWPC*50. / (1. - EXP(-CWPC/2.))
        RB     = TMPRB * SQRT(parameters%DLEAF/UC)
+       RB     = MAX(RB,20.0)
 !       RB = 200
 
   END SUBROUTINE RAGRB
@@ -4541,6 +4564,8 @@ ENDIF   ! CROPTYPE == 0
        ELSE
           ZETALU = MIN (ZETALU,ZTMAX)
           ZETALT = MIN (ZETALT,ZTMAX)
+          ZETAU  = MIN (ZETAU,ZTMAX/(ZSLU/ZU))   ! Barlage: add limit on ZETAU/ZETAT
+          ZETAT  = MIN (ZETAT,ZTMAX/(ZSLT/ZT))   ! Barlage: prevent SIMM/SIMH < 0
           PSMZ = PSPMS (ZETAU)
           SIMM = PSPMS (ZETALU) - PSMZ + RLOGU
           PSHZ = PSPHS (ZETAT)
@@ -4577,10 +4602,12 @@ ENDIF   ! CROPTYPE == 0
 !-----------------------------------------------------------------------
        RLOGT = log (ZSLT / ZT)
        USTARK = USTAR * VKRM
+       IF(SIMM < 1.e-6) SIMM = 1.e-6        ! Limit stability function
        AKMS = MAX (USTARK / SIMM,CXCH)
 !-----------------------------------------------------------------------
 ! IF STATEMENTS TO AVOID TANGENT LINEAR PROBLEMS NEAR ZERO
 !-----------------------------------------------------------------------
+       IF(SIMH < 1.e-6) SIMH = 1.e-6        ! Limit stability function
        AKHS = MAX (USTARK / SIMH,CXCH)
 
        IF (BTGH * AKHS * DTHV .ne. 0.0) THEN
@@ -5104,7 +5131,7 @@ ENDIF   ! CROPTYPE == 0
         IF (K == ISNOW+1) THEN
            AI(K)    =   0.0
            CI(K)    = - DF(K)   * DDZ(K) / DENOM(K)
-           IF (OPT_STC == 1 .OR. OPT_STC == 3) THEN
+           IF (OPT_STC == 1 .OR. OPT_STC == 3 ) THEN
               BI(K) = - CI(K)
            END IF                                        
            IF (OPT_STC == 2) THEN
@@ -5388,6 +5415,7 @@ ENDIF   ! CROPTYPE == 0
         SNEQV  = MAX(0.,TEMP1-XM(1))  
         PROPOR = SNEQV/TEMP1
         SNOWH  = MAX(0.,PROPOR * SNOWH)
+        SNOWH  = MIN(MAX(SNOWH,SNEQV/500.0),SNEQV/50.0)  ! limit adjustment to a reasonable density
         HEATR  = HM(1) - HFUS*(TEMP1-SNEQV)/DT  
         IF (HEATR > 0.) THEN
               XM(1) = HEATR*DT/HFUS             
@@ -6224,10 +6252,12 @@ ENDIF   ! CROPTYPE == 0
              IF(J /= 0) THEN
                 SNLIQ(J+1) = SNLIQ(J+1) + SNLIQ(J)
                 SNICE(J+1) = SNICE(J+1) + SNICE(J)
+                DZSNSO(J+1) = DZSNSO(J+1) + DZSNSO(J)
              ELSE
                IF (ISNOW_OLD < -1) THEN    ! MB/KM: change to ISNOW
                 SNLIQ(J-1) = SNLIQ(J-1) + SNLIQ(J)
                 SNICE(J-1) = SNICE(J-1) + SNICE(J)
+                DZSNSO(J-1) = DZSNSO(J-1) + DZSNSO(J)
                ELSE
 	         IF(SNICE(J) >= 0.) THEN
                   PONDING1 = SNLIQ(J)    ! ISNOW WILL GET SET TO ZERO BELOW; PONDING1 WILL GET 
@@ -6635,6 +6665,7 @@ ENDIF   ! CROPTYPE == 0
            ! The change in DZ due to compaction
 
            DZSNSO(J) = DZSNSO(J)*(1.+PDZDTC)
+           DZSNSO(J) = max(DZSNSO(J),SNICE(J)/DENICE + SNLIQ(J)/DENH2O)
         END IF
 
         ! Pressure of overlying snow
@@ -6697,6 +6728,7 @@ ENDIF   ! CROPTYPE == 0
    REAL, DIMENSION(-NSNOW+1:0) :: EPORE     !effective porosity = porosity - VOL_ICE
    REAL :: PROPOR, TEMP
    REAL :: PONDING1, PONDING2
+   REAL, PARAMETER :: max_liq_mass_fraction = 0.4
 ! ----------------------------------------------------------------------
 
 !for the case when SNEQV becomes '0' after 'COMBINE'
@@ -6719,6 +6751,7 @@ ENDIF   ! CROPTYPE == 0
       SNEQV  = SNEQV - QSNSUB*DT + QSNFRO*DT
       PROPOR = SNEQV/TEMP
       SNOWH  = MAX(0.,PROPOR * SNOWH)
+      SNOWH  = MIN(MAX(SNOWH,SNEQV/500.0),SNEQV/50.0)  ! limit adjustment to a reasonable density
 
       IF(SNEQV < 0.) THEN
          SICE(1) = SICE(1) + SNEQV/(DZSNSO(1)*1000.)
@@ -6770,9 +6803,20 @@ ENDIF   ! CROPTYPE == 0
      SNLIQ(J) = SNLIQ(J) + QIN
      VOL_LIQ(J) = SNLIQ(J)/(DZSNSO(J)*DENH2O)
      QOUT = MAX(0.,(VOL_LIQ(J)-parameters%SSI*EPORE(J))*DZSNSO(J))
+     IF(J == 0) THEN
+       QOUT = MAX((VOL_LIQ(J)- EPORE(J))*DZSNSO(J) , parameters%SNOW_RET_FAC*DT*QOUT)
+     END IF
      QOUT = QOUT*DENH2O
      SNLIQ(J) = SNLIQ(J) - QOUT
+     IF((SNLIQ(J)/(SNICE(J)+SNLIQ(J))) > max_liq_mass_fraction) THEN
+       QOUT = QOUT + (SNLIQ(J) - max_liq_mass_fraction/(1.0 - max_liq_mass_fraction)*SNICE(J))
+       SNLIQ(J) = max_liq_mass_fraction/(1.0 - max_liq_mass_fraction)*SNICE(J)
+     ENDIF
      QIN = QOUT
+   END DO
+
+   DO J = ISNOW+1, 0
+     DZSNSO(J) = MAX(DZSNSO(J),SNLIQ(J)/DENH2O + SNICE(J)/DENICE)
    END DO
 
 ! Liquid water from snow bottom to soil
@@ -7085,7 +7129,7 @@ ENDIF   ! CROPTYPE == 0
 
    WD1 = 0.
    DO K = 1,NSOIL
-     WD1 = WD1 + (parameters%SMCMAX(K)-SH2O(K)) * DZSNSO(K) ! [m]
+     WD1 = WD1 + (parameters%SMCMAX(1)-SH2O(K)) * DZSNSO(K) ! [m]
    ENDDO
 
    DZFINE = 3.0 * (-ZSOIL(NSOIL)) / NFINE  
@@ -7097,8 +7141,8 @@ ENDIF   ! CROPTYPE == 0
 
    WD2 = 0.
    DO K = 1,NFINE
-     TEMP  = 1. + (ZWT-ZFINE(K))/parameters%PSISAT(K)
-     WD2   = WD2 + parameters%SMCMAX(K)*(1.-TEMP**(-1./parameters%BEXP(K)))*DZFINE
+     TEMP  = 1. + (ZWT-ZFINE(K))/parameters%PSISAT(1)
+     WD2   = WD2 + parameters%SMCMAX(1)*(1.-TEMP**(-1./parameters%BEXP(1)))*DZFINE
      IF(ABS(WD2-WD1).LE.0.01) THEN
         ZWT = ZFINE(K)
         EXIT
@@ -8163,10 +8207,10 @@ END  SUBROUTINE SHALLOWWATERTABLE
 
 !  fraction of carbon into wood versus root
 
-     IF(WOOD.GT.0) THEN
+     IF(WOOD > 1.e-6) THEN
         WOODF = (1.-EXP(-BF*(parameters%WRRAT*RTMASS/WOOD))/BF)*parameters%WDPOOL
      ELSE
-        WOODF = 0.
+        WOODF = parameters%WDPOOL
      ENDIF
 
      ROOTPT = NONLEF*(1.-WOODF)
@@ -8944,7 +8988,7 @@ END SUBROUTINE PSN_CROP
 
   subroutine noahmp_options(idveg     ,iopt_crs  ,iopt_btr  ,iopt_run  ,iopt_sfc  ,iopt_frz , & 
                              iopt_inf  ,iopt_rad  ,iopt_alb  ,iopt_snf  ,iopt_tbot, iopt_stc, &
-			     iopt_rsf, iopt_crop )
+			     iopt_rsf , iopt_soil, iopt_pedo, iopt_crop )
 
   implicit none
 
@@ -8963,6 +9007,8 @@ END SUBROUTINE PSN_CROP
   INTEGER,  INTENT(IN) :: iopt_stc  !snow/soil temperature time scheme (only layer 1)
                                     ! 1 -> semi-implicit; 2 -> full implicit (original Noah)
   INTEGER,  INTENT(IN) :: iopt_rsf  !surface resistance (1->Sakaguchi/Zeng; 2->Seller; 3->mod Sellers; 4->1+snow)
+  INTEGER,  INTENT(IN) :: iopt_soil !soil parameters set-up option
+  INTEGER,  INTENT(IN) :: iopt_pedo !pedo-transfer function (1->Saxton and Rawls)
   INTEGER,  INTENT(IN) :: iopt_crop !crop model option (0->none; 1->Liu et al.)
 
 ! -------------------------------------------------------------------------------------------------
@@ -8981,6 +9027,8 @@ END SUBROUTINE PSN_CROP
   opt_tbot = iopt_tbot 
   opt_stc  = iopt_stc
   opt_rsf  = iopt_rsf
+  opt_soil = iopt_soil
+  opt_pedo = iopt_pedo
   opt_crop = iopt_crop
   
   end subroutine noahmp_options
@@ -9110,6 +9158,7 @@ MODULE NOAHMP_TABLES
     REAL :: FSATMX_TABLE   !maximum surface saturated fraction (global mean)
     REAL :: Z0SNO_TABLE    !snow surface roughness length (m) (0.002)
     REAL :: SSI_TABLE      !liquid water holding capacity for snowpack (m3/m3) (0.03)
+    REAL :: SNOW_RET_FAC_TABLE !snowpack water release timescale factor (1/s)
     REAL :: SWEMX_TABLE    !new snow mass to fully cover old snow (mm)
     REAL :: TAU0_TABLE          !tau0 from Yang97 eqn. 10a
     REAL :: GRAIN_GROWTH_TABLE  !growth from vapor diffusion Yang97 eqn. 10b
@@ -9172,6 +9221,57 @@ MODULE NOAHMP_TABLES
     REAL :: RTPT_TABLE(NCROP,NSTAGE)    ! fraction of carbohydrate flux to root
     REAL :: GRAINPT_TABLE(NCROP,NSTAGE) ! fraction of carbohydrate flux to grain
     REAL :: BIO2LAI_TABLE(NCROP)        ! leaf are per living leaf biomass [m^2/kg]
+
+! MPTABLE.TBL optional parameters
+
+    REAL :: sr2006_theta_1500t_a        ! sand coefficient
+    REAL :: sr2006_theta_1500t_b        ! clay coefficient
+    REAL :: sr2006_theta_1500t_c        ! orgm coefficient
+    REAL :: sr2006_theta_1500t_d        ! sand*orgm coefficient
+    REAL :: sr2006_theta_1500t_e        ! clay*orgm coefficient
+    REAL :: sr2006_theta_1500t_f        ! sand*clay coefficient
+    REAL :: sr2006_theta_1500t_g        ! constant adjustment
+
+    REAL :: sr2006_theta_1500_a         ! theta_1500t coefficient
+    REAL :: sr2006_theta_1500_b         ! constant adjustment
+
+    REAL :: sr2006_theta_33t_a          ! sand coefficient
+    REAL :: sr2006_theta_33t_b          ! clay coefficient
+    REAL :: sr2006_theta_33t_c          ! orgm coefficient
+    REAL :: sr2006_theta_33t_d          ! sand*orgm coefficient
+    REAL :: sr2006_theta_33t_e          ! clay*orgm coefficient
+    REAL :: sr2006_theta_33t_f          ! sand*clay coefficient
+    REAL :: sr2006_theta_33t_g          ! constant adjustment
+
+    REAL :: sr2006_theta_33_a           ! theta_33t*theta_33t coefficient
+    REAL :: sr2006_theta_33_b           ! theta_33t coefficient
+    REAL :: sr2006_theta_33_c           ! constant adjustment
+
+    REAL :: sr2006_theta_s33t_a         ! sand coefficient
+    REAL :: sr2006_theta_s33t_b         ! clay coefficient
+    REAL :: sr2006_theta_s33t_c         ! orgm coefficient
+    REAL :: sr2006_theta_s33t_d         ! sand*orgm coefficient
+    REAL :: sr2006_theta_s33t_e         ! clay*orgm coefficient
+    REAL :: sr2006_theta_s33t_f         ! sand*clay coefficient
+    REAL :: sr2006_theta_s33t_g         ! constant adjustment
+
+    REAL :: sr2006_theta_s33_a          ! theta_s33t coefficient
+    REAL :: sr2006_theta_s33_b          ! constant adjustment
+
+    REAL :: sr2006_psi_et_a             ! sand coefficient
+    REAL :: sr2006_psi_et_b             ! clay coefficient
+    REAL :: sr2006_psi_et_c             ! theta_s33 coefficient
+    REAL :: sr2006_psi_et_d             ! sand*theta_s33 coefficient
+    REAL :: sr2006_psi_et_e             ! clay*theta_s33 coefficient
+    REAL :: sr2006_psi_et_f             ! sand*clay coefficient
+    REAL :: sr2006_psi_et_g             ! constant adjustment
+
+    REAL :: sr2006_psi_e_a              ! psi_et*psi_et coefficient
+    REAL :: sr2006_psi_e_b              ! psi_et coefficient
+    REAL :: sr2006_psi_e_c              ! constant adjustment
+
+    REAL :: sr2006_smcmax_a             ! sand adjustment
+    REAL :: sr2006_smcmax_b             ! constant adjustment
 
 CONTAINS
 
@@ -9572,12 +9672,12 @@ CONTAINS
     integer :: ierr
     logical :: file_named 
 
-    REAL :: CO2,O2,TIMEAN,FSATMX,Z0SNO,SSI, &
+    REAL :: CO2,O2,TIMEAN,FSATMX,Z0SNO,SSI,SNOW_RET_FAC, &
             SWEMX,TAU0,GRAIN_GROWTH,EXTRA_GROWTH,DIRT_SOOT,&
 	    BATS_COSZ,BATS_VIS_NEW,BATS_NIR_NEW,BATS_VIS_AGE,BATS_NIR_AGE,BATS_VIS_DIR,BATS_NIR_DIR,&
 	    RSURF_SNOW,RSURF_EXP
 
-    NAMELIST / noahmp_global_parameters / CO2,O2,TIMEAN,FSATMX,Z0SNO,SSI, &
+    NAMELIST / noahmp_global_parameters / CO2,O2,TIMEAN,FSATMX,Z0SNO,SSI,SNOW_RET_FAC, &
             SWEMX,TAU0,GRAIN_GROWTH,EXTRA_GROWTH,DIRT_SOOT,&
 	    BATS_COSZ,BATS_VIS_NEW,BATS_NIR_NEW,BATS_VIS_AGE,BATS_NIR_AGE,BATS_VIS_DIR,BATS_NIR_DIR,&
 	    RSURF_SNOW,RSURF_EXP
@@ -9590,6 +9690,7 @@ CONTAINS
     FSATMX_TABLE     = -1.E36
      Z0SNO_TABLE     = -1.E36
        SSI_TABLE     = -1.E36
+SNOW_RET_FAC_TABLE   = -1.E36
      SWEMX_TABLE     = -1.E36
         TAU0_TABLE   = -1.E36
 GRAIN_GROWTH_TABLE   = -1.E36
@@ -9626,6 +9727,7 @@ RSURF_SNOW_TABLE     = -1.E36
     FSATMX_TABLE     = FSATMX
      Z0SNO_TABLE     = Z0SNO
        SSI_TABLE     = SSI
+SNOW_RET_FAC_TABLE   = SNOW_RET_FAC
      SWEMX_TABLE     = SWEMX
         TAU0_TABLE   = TAU0
 GRAIN_GROWTH_TABLE   = GRAIN_GROWTH
@@ -9867,6 +9969,48 @@ RSURF_SNOW_TABLE     = RSURF_SNOW
       BIO2LAI_TABLE      = BIO2LAI
 
   end subroutine read_mp_crop_parameters
+
+  subroutine read_mp_optional_parameters()
+    implicit none
+    integer :: ierr
+    logical :: file_named 
+
+    NAMELIST / noahmp_optional_parameters /                                &
+         sr2006_theta_1500t_a, sr2006_theta_1500t_b, sr2006_theta_1500t_c, &
+         sr2006_theta_1500t_d, sr2006_theta_1500t_e, sr2006_theta_1500t_f, &
+         sr2006_theta_1500t_g                                            , &
+         sr2006_theta_1500_a , sr2006_theta_1500_b                       , &
+         sr2006_theta_33t_a  , sr2006_theta_33t_b  , sr2006_theta_33t_c  , &
+         sr2006_theta_33t_d  , sr2006_theta_33t_e  , sr2006_theta_33t_f  , &
+         sr2006_theta_33t_g                                              , &
+         sr2006_theta_33_a   , sr2006_theta_33_b   , sr2006_theta_33_c   , &
+         sr2006_theta_s33t_a , sr2006_theta_s33t_b , sr2006_theta_s33t_c , &
+         sr2006_theta_s33t_d , sr2006_theta_s33t_e , sr2006_theta_s33t_f , &
+         sr2006_theta_s33t_g                                             , &
+         sr2006_theta_s33_a  , sr2006_theta_s33_b                        , &
+         sr2006_psi_et_a     , sr2006_psi_et_b     , sr2006_psi_et_c     , &
+         sr2006_psi_et_d     , sr2006_psi_et_e     , sr2006_psi_et_f     , &
+         sr2006_psi_et_g                                                 , &
+         sr2006_psi_e_a      , sr2006_psi_e_b      , sr2006_psi_e_c      , &
+         sr2006_smcmax_a     , sr2006_smcmax_b
+
+    inquire( file='MPTABLE.TBL', exist=file_named ) 
+    if ( file_named ) then
+      open(15, file="MPTABLE.TBL", status='old', form='formatted', action='read', iostat=ierr)
+    else
+      open(15, status='old', form='formatted', action='read', iostat=ierr)
+    end if
+
+    if (ierr /= 0) then
+       write(*,'("WARNING: Cannot find file MPTABLE.TBL")')
+       call wrf_error_fatal("STOP in Noah-MP read_mp_optional_parameters")
+    endif
+
+    read(15,noahmp_optional_parameters)
+    close(15)
+
+
+  end subroutine read_mp_optional_parameters
 
 END MODULE NOAHMP_TABLES
 

@@ -20,7 +20,11 @@
 
 Module module_RT_data
    use overland_data
-   use module_reservoir_base
+   use module_subsurface_data
+   use module_subsurface_static_data
+   use module_subsurface_input
+   use module_subsurface_output
+   use module_reservoir, only: reservoir_container
    IMPLICIT NONE
    INTEGER, PARAMETER :: max_domain=5
 
